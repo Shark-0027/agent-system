@@ -19,6 +19,8 @@
 ```
 agent-system/
 ├── README.md
+├── pyproject.toml
+├── uv.lock
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
@@ -73,7 +75,10 @@ agent-system/
 git clone https://github.com/Shark-0027/agent-system.git
 cd agent-system
 
-# 安装依赖
+# 使用 uv 安装依赖（推荐）
+uv sync
+
+# 或者使用 pip
 pip install -r requirements.txt
 
 # 配置环境变量
@@ -94,7 +99,8 @@ python code/examples/research_agent.py
 ### 运行测试
 
 ```bash
-python -m unittest tests.test_agent_runtime tests.test_mcp tests.test_planner_executor -v
+# 运行测试（uv）
+uv run python -m unittest tests.test_agent_runtime tests.test_mcp tests.test_planner_executor -v
 ```
 
 ## 核心模块
