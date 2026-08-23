@@ -43,3 +43,7 @@ Thumbs.db
 # uv 构建产物（本项目内缓存与 Python 运行时）
 .uv-cache/
 .uv-pythons/
+
+# CSV Agent 运行时产物
+csv_agent_memory.db
+csv_agent_workspaces/
