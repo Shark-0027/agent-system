@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Optional
 
 class MemoryStore:
     def __init__(self, path="csv_agent_memory.db"):
-        self._conn = sqlite3.connect(path)
+        # check_same_thread=False: 供 FastAPI 等线程池中共享同一连接（如 API 模块级 MemoryStore）
+        self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.execute("CREATE TABLE IF NOT EXISTS preferences (k TEXT PRIMARY KEY, v TEXT)")
         self._conn.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, goal TEXT, columns TEXT, model TEXT, note TEXT, ts TEXT)")
         self._conn.commit()
