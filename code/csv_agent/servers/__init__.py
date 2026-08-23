@@ -3,4 +3,5 @@ from .data_loader import DataLoaderServer
 from .data_processor import DataProcessorServer
 from .visualizer import VisualizerServer
 from .model_trainer import ModelTrainerServer
-__all__ = ["DataLoaderServer", "DataProcessorServer", "VisualizerServer", "ModelTrainerServer"]
+from .report_generator import ReportGeneratorServer
+__all__ = ["DataLoaderServer", "DataProcessorServer", "VisualizerServer", "ModelTrainerServer", "ReportGeneratorServer"]

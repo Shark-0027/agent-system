@@ -8,6 +8,7 @@ from code.csv_agent.servers.model_trainer import model_train, model_suggest
 import matplotlib
 matplotlib.use("Agg")
 from code.csv_agent.servers.visualizer import eda_plot
+from code.csv_agent.servers.report_generator import report_generate
 
 def _mkws():
     ws = Workspace.create()
@@ -75,3 +76,12 @@ def test_model_train_returns_metrics():
     assert out["success"] is True
     assert "rmse" in out["metrics"]
     assert out["feature_importance"]
+
+def test_report_generate_writes_markdown():
+    ws = _mkws()
+    out = report_generate(ws, {"ws": str(ws.root), "goal": "分析销售额影响因素", "models": "RandomForest"})
+    assert out["success"] is True
+    assert ws.report_md.exists()
+    content = ws.report_md.read_text(encoding="utf-8")
+    assert "AI 数据分析报告" in content
+    assert "销售额" in content or "目标" in content
