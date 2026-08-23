@@ -1,6 +1,10 @@
 from __future__ import annotations
 import json
+import os
+import tempfile
 from typing import Any, Dict
+# 强制把 matplotlib 缓存指向可写临时目录，避免沙箱/受限用户目录报错
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "mplconfig"))
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
