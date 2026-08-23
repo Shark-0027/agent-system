@@ -3,6 +3,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from code.csv_agent.workspace import Workspace
 from code.csv_agent.datagen import gen_sales
 from code.csv_agent.servers.data_loader import csv_load, data_summary
+from code.csv_agent.servers.data_processor import data_clean, feature_engineer
 
 def _mkws():
     ws = Workspace.create()
@@ -29,3 +30,20 @@ def test_data_summary_numeric_cols():
     assert out["success"] is True
     assert "sales" in out["summary"]
     assert "mean" in out["summary"]["sales"]
+
+def test_data_clean_fills_missing():
+    ws = _mkws()
+    out = data_clean(ws, {"ws": str(ws.root), "fill": "median"})
+    assert out["success"] is True
+    df = ws.load_csv("cleaned.csv")
+    assert df["quantity"].isna().sum() == 0
+    assert df["price"].isna().sum() == 0
+
+def test_feature_engineer_creates_features():
+    ws = _mkws()
+    data_clean(ws, {"ws": str(ws.root), "fill": "median"})
+    out = feature_engineer(ws, {"ws": str(ws.root), "encode": True})
+    assert out["success"] is True
+    df = ws.load_csv("cleaned.csv")
+    assert "region_code" in df.columns
+    assert "price_scaled" in df.columns
