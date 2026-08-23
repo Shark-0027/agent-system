@@ -115,9 +115,15 @@
       toast("全流程分析完成");
       await loadRuns();
       selectRun(state.runId);
-      showReport();
+      showReportTab();
     } catch (e) { toast(e.message, true); }
     finally { uploadBtn(false); }
+  }
+
+  function showReportTab() {
+    const tab = Array.from($$(".tab")).find((t) => t.dataset.tab === "report");
+    if (tab) tab.click();
+    loadReport();
   }
 
   /* ---- 运行列表 ---- */
