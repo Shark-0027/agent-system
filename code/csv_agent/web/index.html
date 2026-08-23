@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV 数据分析 Agent 工作台</title>
+  <link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>CSV 数据分析 <span>Agent 工作台</span></h1>
+      <div class="health"><span class="dot"></span><b id="healthText">检查中…</b></div>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost" id="refreshBtn">刷新</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左：数据接入 + 运行选择 -->
+    <section class="panel">
+      <h2>数据接入</h2>
+      <label class="field">
+        <span>CSV 文件</span>
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+      </label>
+      <label class="field">
+        <span>分析目标</span>
+        <textarea id="goal" rows="2" placeholder="例如：分析各区域销售额，找出影响销量的关键因素并训练回归模型"></textarea>
+      </label>
+      <div class="btn-row">
+        <button class="btn primary" id="uploadBtn">上传 &amp; 预览</button>
+        <button class="btn" id="sampleBtn">生成样例</button>
+        <button class="btn accent" id="analyzeBtn">开始全流程分析</button>
+      </div>
+
+      <h2>运行</h2>
+      <div class="run-row">
+        <select id="runSelect"><option value="">— 请选择运行 —</option></select>
+        <button class="btn" id="runsBtn">刷新列表</button>
+      </div>
+      <div id="runInfo" class="info muted">选择运行后可查看/操作产物。</div>
+    </section>
+
+    <!-- 中：分步工具 -->
+    <section class="panel">
+      <h2>分步分析工具</h2>
+      <div id="toolButtons" class="tool-grid">
+        <p class="muted">正在加载工具…</p>
+      </div>
+      <div id="toolResult" class="output">
+        <p class="muted">点击上方工具按钮，在当前运行上执行单个分析步骤，结果在此展示。</p>
+      </div>
+    </section>
+
+    <!-- 右：结果区 -->
+    <section class="panel results">
+      <div class="tabs">
+        <button class="tab active" data-tab="table">数据表</button>
+        <button class="tab" data-tab="charts">图表</button>
+        <button class="tab" data-tab="report">报告</button>
+        <button class="tab" data-tab="download">下载</button>
+        <button class="tab" data-tab="history">历史</button>
+      </div>
+      <div class="tab-body" id="tab-table"><p class="muted">暂无数据。</p></div>
+      <div class="tab-body" id="tab-charts" style="display:none"><p class="muted">暂无图表。</p></div>
+      <div class="tab-body" id="tab-report" style="display:none"><p class="muted">暂无报告。</p></div>
+      <div class="tab-body" id="tab-download" style="display:none"><p class="muted">暂无下载项。</p></div>
+      <div class="tab-body" id="tab-history" style="display:none"><p class="muted">暂无历史记录。</p></div>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+  <script src="/web/app.js"></script>
+</body>
+</html>

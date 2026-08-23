@@ -222,6 +222,22 @@ uv run uvicorn code.csv_agent.api:app --reload
 # GET  /api/health                             →  {"status": "ok"}
 ```
 
+### 交互式工作台
+
+在 API 基础上提供单页交互式工作台（服务启动后访问 `http://127.0.0.1:8000/`，前端位于 `code/csv_agent/web/`）。前端把底层能力拆成一组按钮，覆盖上传/生成样例、分步执行单个分析工具、产物查看与下载、历史记录：
+
+| 分区 | 前端按钮 | 后端端点 |
+|---|---|---|
+| 数据接入 | 上传 CSV / 生成样例 | `POST /api/run` / `GET /api/sample` |
+| 一键分析 | 开始全流程分析 | `POST /api/analyze` |
+| 分步工具 | 加载/概览/清洗/特征/可视化/模型建议/模型训练/生成报告 | `POST /api/run/{rid}/tool` |
+| 运行管理 | 运行下拉、刷新 | `GET /api/runs` / `GET /api/run/{rid}/info` |
+| 结果查看 | 数据表 / 图表 / 报告 | `GET /api/run/{rid}/data`、`/charts`、`/chart`、`/api/report/{rid}` |
+| 下载 | 报告 / cleaned / input | `GET /api/run/{rid}/download?name=` |
+| 历史与偏好 | 历史记录、偏好设置 | `GET /api/history`、`GET/PUT /api/preferences` |
+
+分步按钮与一键分析共用同一套 MCP 工具与工作区产物，便于对比“单步执行”与“Planner 自动编排”的效果。
+
 ### 评测命令
 
 ```python
