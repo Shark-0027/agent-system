@@ -26,6 +26,7 @@ class CsvAgent:
         self.memory = memory or MemoryStore()
         self.agent = PlannerExecutorAgent(
             llm_client=self.llm,
+            tool_registry=self.tool_registry,
             session_manager=self.session_manager,
             trace_logger=self.trace_logger,
             auto_planning=False,          # 数据任务都需规划
