@@ -36,14 +36,29 @@
     loadHistory();
   }
 
-  /* ---- 健康检查 ---- */
+  /* ---- 健康检查 + 运行模式 ---- */
   async function bindHealth() {
-    try { await api("/api/health"); setHealth(true); }
+    try {
+      const h = await api("/api/health");
+      setHealth(true);
+      setMode(h);
+    }
     catch (e) { setHealth(false); }
   }
   function setHealth(ok) {
     $("#healthText").textContent = ok ? "服务正常" : "服务异常";
     $(".health .dot").className = "dot" + (ok ? " ok" : " err");
+  }
+  function setMode(h) {
+    const el = $("#modeText");
+    if (!el) return;
+    if (h && h.mode) {
+      el.textContent = h.mode_label || (h.mode === "llm" ? "LLM 模式" : "本地模式");
+      el.className = "mode-badge mode-" + h.mode;
+    } else {
+      el.textContent = "";
+      el.className = "mode-badge";
+    }
   }
 
   /* ---- 页签切换 ---- */
@@ -112,7 +127,7 @@
     try {
       const r = await api("/api/analyze", { method: "POST", body: fd });
       state.runId = r.run_id;
-      toast("全流程分析完成");
+      toast(`全流程分析完成（${r.mode === "llm" ? "LLM 自动编排" : "本地规则模式"}）`);
       await loadRuns();
       selectRun(state.runId);
       showReportTab();

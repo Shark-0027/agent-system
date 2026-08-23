@@ -31,6 +31,24 @@ _tools = build_tool_registry()
 _runs: Dict[str, Any] = {}
 
 
+def _build_agent() -> Dict[str, Any]:
+    """构造编排 Agent，并报告实际采用的运行模式。
+
+    优先使用 LLM 模式（use_llm=True）；当未配置 OPENAI_API_KEY 等导致
+    LLMClient 初始化失败时，回退到本地规则模式（use_llm=False）。
+    返回 {"agent": CsvAgent, "mode": "llm"|"local"}。
+    """
+    try:
+        return {"agent": CsvAgent(use_llm=True, memory=_memory), "mode": "llm"}
+    except Exception:  # noqa: BLE001 无 LLM key 时回退本地模式
+        return {"agent": CsvAgent(use_llm=False, memory=_memory), "mode": "local"}
+
+
+def _resolve_mode() -> str:
+    """当前服务实际可用的运行模式（不创建 Agent）。"""
+    return _build_agent()["mode"]
+
+
 def _run_root(rid: str) -> Path:
     root = _runs.get(rid)
     if not root or not isinstance(root, Path) or not root.is_dir():
@@ -101,7 +119,9 @@ app.mount("/web", StaticFiles(directory=_WEB_DIR), name="web")
 # ---------------------------------------------------------------------------
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    mode = _resolve_mode()
+    return {"status": "ok", "mode": mode,
+            "mode_label": "LLM 自动编排" if mode == "llm" else "本地规则模式"}
 
 
 # ---------------------------------------------------------------------------
@@ -217,16 +237,14 @@ def analyze(goal: str = Form(...), file: UploadFile = File(...)):
     df = pd.read_csv(io.BytesIO(raw))
     ws.save_csv(df, "input.csv")
     _runs[ws.run_id] = ws.root
-    try:
-        agent = CsvAgent(use_llm=True, memory=_memory)
-    except Exception:  # noqa: BLE001 无 LLM key 时回退本地模式
-        agent = CsvAgent(use_llm=False, memory=_memory)
-    out = agent.analyze(ws, goal)
+    built = _build_agent()
+    out = built["agent"].analyze(ws, goal)
     return {
         "success": out.get("success"),
         "run_id": ws.run_id,
         "report": str(ws.report_md),
         "error": out.get("error"),
+        "mode": built["mode"],
     }
 
 

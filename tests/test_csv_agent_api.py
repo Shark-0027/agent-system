@@ -15,6 +15,9 @@ def test_health():
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    # 双运行模式需通过接口上报给前端
+    assert r.json()["mode"] in ("llm", "local")
+    assert "mode_label" in r.json()
 
 
 def test_analyze_and_report(tmp_path):
@@ -31,6 +34,8 @@ def test_analyze_and_report(tmp_path):
     body = r.json()
     assert body["success"] is True
     run_id = body["run_id"]
+    # 全流程分析需返回实际采用的运行模式
+    assert body["mode"] in ("llm", "local")
 
     rr = client.get(f"/api/report/{run_id}")
     assert rr.status_code == 200

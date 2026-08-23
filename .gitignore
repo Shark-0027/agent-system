@@ -47,3 +47,4 @@ Thumbs.db
 # CSV Agent 运行时产物
 csv_agent_memory.db
 csv_agent_workspaces/
+.trae

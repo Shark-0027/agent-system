@@ -38,6 +38,9 @@ body {
 .health .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
 .health .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 .health .dot.err { background: var(--err); }
+.mode-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+.mode-badge.mode-llm { background: rgba(22,163,74,.18); color: #4ade80; border: 1px solid rgba(74,222,128,.4); }
+.mode-badge.mode-local { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid rgba(251,191,36,.4); }
 
 .layout {
   display: grid;
