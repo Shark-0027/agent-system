@@ -39,3 +39,7 @@ Thumbs.db
 # 临时文件
 *.tmp
 *.bak
+
+# uv 构建产物（本项目内缓存与 Python 运行时）
+.uv-cache/
+.uv-pythons/
