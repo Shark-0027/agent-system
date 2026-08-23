@@ -192,8 +192,7 @@ def demo_planning():
     print(f"任务: {task}\n")
 
     plan = planner.plan(task)
-    print(f"计划版本: {plan.version}")
-    print(f"子任务数: {len(plan.nodes)}")
+    print(f"子任务数: {plan.node_count}")
 
     order = plan.get_execution_order()
     print(f"执行顺序: {' -> '.join(order)}")
@@ -208,9 +207,9 @@ def demo_planning():
     for issue in result.issues:
         print(f"  [{issue.severity}] {issue.message}")
 
-    if result.suggestions:
+    if suggestions := [i.suggestion for i in result.issues if i.suggestion]:
         print("改进建议:")
-        for s in result.suggestions:
+        for s in suggestions:
             print(f"  - {s}")
 
 

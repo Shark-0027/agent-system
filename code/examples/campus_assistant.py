@@ -18,7 +18,7 @@ from code.agent_runtime import (
     AgentRuntime, LLMClient, ToolRegistry, Tool,
     StateManager, SessionManager, TraceLogger,
 )
-from code.mcp import MCPClient, ToolRouter
+from code.mcp import MCPClient, ToolRouter, ToolSchema
 from code.mcp.servers import CampusInfoServer, RepoAnalysisServer, DocSearchServer
 from code.planner_executor import PlannerExecutorAgent, Planner, Executor, TaskDAG
 
@@ -129,27 +129,33 @@ def demo_mcp_system():
     client.connect_server(repo_server)
     client.connect_server(doc_server)
 
-    all_tools = client.list_all_tools()
+    # discover_tools() 返回 {server_name: [工具字典,...]} 分组结构
+    discovered = client.discover_tools()
     print(f"已连接 {len(client.servers)} 个 MCP Server")
-    print(f"共发现 {len(all_tools)} 个工具")
+    print(f"共发现 {sum(len(t) for t in discovered.values())} 个工具")
 
-    for server_name, tools in sorted(all_tools.items()):
-        print(f"  [{server_name}]: {', '.join(t.name for t in tools)}")
+    for server_name, tools in sorted(discovered.items()):
+        print(f"  [{server_name}]: {', '.join(t['name'] for t in tools)}")
 
-    # 测试工具路由
+    # 测试工具路由（select_tools 需要 ToolSchema 对象）
     print("\n--- 工具路由测试 ---")
     task = "我想查询计算机学院的课程信息"
-    selected = router.select_tools(task, all_tools, top_k=5)
+    available_schemas = [
+        ToolSchema.from_dict(td)
+        for tools in discovered.values()
+        for td in tools
+    ]
+    selected = router.select_tools(task, available_schemas, top_k=5)
     print(f"任务: {task}")
     print(f"推荐工具:")
     for s in selected[:3]:
-        print(f"  - {s.tool_name} (分数: {s.score:.2f}, 理由: {s.reason})")
+        print(f"  - {s.tool.name} (分数: {s.score:.2f}, 理由: {s.reason})")
 
     # 测试工具调用
     print("\n--- 工具调用测试 ---")
     result = client.call_tool("campus-info", "search_courses", keyword="Python")
     if result.get("success"):
-        courses = result.get("result", [])
+        courses = (result.get("result") or {}).get("courses", [])
         print(f"查询到 {len(courses)} 门课程")
         for c in courses[:3]:
             print(f"  - {c.get('name')}: {c.get('teacher')} ({c.get('credits')}学分)")
@@ -159,8 +165,9 @@ def demo_mcp_system():
     # 健康检查
     print("\n--- 健康检查 ---")
     for name in client.servers:
-        health = client.check_server_health(name)
-        status = "✓ 正常" if health.get("healthy") else "✗ 异常"
+        server = client.get_server(name)
+        health = server.health_check()
+        status = "✓ 正常" if health.get("status") == "healthy" else "✗ 异常"
         print(f"  [{name}]: {status}")
 
 
