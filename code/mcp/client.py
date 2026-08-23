@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 # 权限等级
 # ---------------------------------------------------------------------------
 
+# 显式的等级顺序（字符串字典序与等级语义不一致，需显式定义）
+_PERMISSION_ORDER: Dict[str, int] = {"read": 0, "write": 1, "admin": 2}
+
+
 class PermissionLevel(Enum):
     """工具权限等级。"""
 
@@ -40,6 +44,13 @@ class PermissionLevel(Enum):
         except ValueError:
             logger.warning("Unknown permission level '%s', defaulting to READ", value)
             return cls.READ
+
+    def rank(self) -> int:
+        """返回等级数值，用于比较。"""
+        return _PERMISSION_ORDER[self.value]
+
+    def __lt__(self, other: "PermissionLevel") -> bool:
+        return self.rank() < other.rank()
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +266,7 @@ class MCPClient:
             if required_level is not None:
                 # 默认当前用户权限为 READ，实际可扩展
                 current_level = PermissionLevel.READ
-                if current_level.value < required_level.value:
+                if current_level < required_level:
                     record = TraceRecord(
                         trace_id=trace_id,
                         server_name=server_name,

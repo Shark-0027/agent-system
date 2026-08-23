@@ -13,6 +13,7 @@ import os
 import time
 import json
 import logging
+from dotenv import load_dotenv
 from typing import Any, Dict, List, Optional, Union
 
 from openai import OpenAI
@@ -26,6 +27,8 @@ from openai import (
 )
 
 from .exceptions import ModelCallException
+
+load_dotenv()
 
 logger = logging.getLogger("agent_runtime.llm")
 
