@@ -190,6 +190,46 @@ Agent Runtime 是 Agent 系统的运行基础，负责组织模型推理、工�
 
 本项目仅用于红岩网校 AI 部门考核目的。
 
+## CSV 数据分析 Agent（选题扩展应用）
+
+在 Agent Runtime / MCP / Planner–Executor 之上实现的一个端到端 CSV 数据分析 Agent：上传 CSV + 自然语言分析目标 → 自动完成「加载 → 清洗 → 探索 → 特征工程 → 建模/绘图 → 生成 Markdown 报告」。
+
+**分层结构：**
+- `code/csv_agent/workspace.py`：每次分析独立工作区（`input.csv` / `cleaned.csv` / `charts/` / `report.md`）
+- `code/csv_agent/sandbox.py`：子进程隔离 + 超时的安全执行沙箱
+- `code/csv_agent/servers/`：5 个 MCP Server，8 个工具（data-loader / data-processor / visualizer / model-trainer / report-generator）
+- `code/csv_agent/memory.py`：SQLite 记忆（偏好 + 历史分析）
+- `code/csv_agent/bridge.py`：MCP 工具双注册——既走 MCP 协议又注入 Planner-Executor 的 ToolRegistry
+- `code/csv_agent/orchestrator.py`：`CsvAgent` 编排入口（设 WorkspaceContext → Planner-Executor 执行目标 → 兜底生成报告）
+- `code/csv_agent/eval_csv.py`：20 个 4 难度任务的自动评测 + Planner-Executor vs 简单 Agent Loop 基线对照
+
+### CLI 用法
+
+```bash
+# 生成样例数据
+uv run python -m code.csv_agent.cli sample /tmp/s.csv
+
+# 分析（未配置 LLM 时加 --no-llm 走本地模式）
+uv run python -m code.csv_agent.cli analyze /tmp/s.csv "分析销售额影响因素并生成报告" --no-llm
+```
+
+### API 启动
+
+```bash
+uv run uvicorn code.csv_agent.api:app --reload
+# POST /api/analyze  (multipart: goal + file)  →  {success, run_id, report, error}
+# GET  /api/report/{run_id}                    →  Markdown 报告内容
+# GET  /api/health                             →  {"status": "ok"}
+```
+
+### 评测命令
+
+```python
+from code.csv_agent.eval_csv import run_csv_eval, run_comparison
+report = run_csv_eval()          # 20 任务，返回 EvalReport（total/passed/pass_rate）
+rows   = run_comparison(runs=3)  # Planner-Executor vs Agent Loop 基线对照
+```
+
 ---
 
 **参考项目**：[datawhalechina/hello-agents](https://github.com/datawhalechina/hello-agents) — 从零开始构建智能体
