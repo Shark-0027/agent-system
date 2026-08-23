@@ -4,6 +4,9 @@ from code.csv_agent.workspace import Workspace
 from code.csv_agent.datagen import gen_sales
 from code.csv_agent.servers.data_loader import csv_load, data_summary
 from code.csv_agent.servers.data_processor import data_clean, feature_engineer
+import matplotlib
+matplotlib.use("Agg")
+from code.csv_agent.servers.visualizer import eda_plot
 
 def _mkws():
     ws = Workspace.create()
@@ -47,3 +50,11 @@ def test_feature_engineer_creates_features():
     df = ws.load_csv("cleaned.csv")
     assert "region_code" in df.columns
     assert "price_scaled" in df.columns
+
+def test_eda_plot_generates_charts():
+    ws = _mkws()
+    out = eda_plot(ws, {"ws": str(ws.root), "kind": "hist"})
+    assert out["success"] is True
+    png_files = list(ws.charts_dir.glob("*.png"))
+    assert len(png_files) >= 1
+    assert out["charts"]
