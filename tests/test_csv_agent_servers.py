@@ -4,6 +4,7 @@ from code.csv_agent.workspace import Workspace
 from code.csv_agent.datagen import gen_sales
 from code.csv_agent.servers.data_loader import csv_load, data_summary
 from code.csv_agent.servers.data_processor import data_clean, feature_engineer
+from code.csv_agent.servers.model_trainer import model_train, model_suggest
 import matplotlib
 matplotlib.use("Agg")
 from code.csv_agent.servers.visualizer import eda_plot
@@ -58,3 +59,19 @@ def test_eda_plot_generates_charts():
     png_files = list(ws.charts_dir.glob("*.png"))
     assert len(png_files) >= 1
     assert out["charts"]
+
+def test_model_suggest_returns_recommendation():
+    ws = _mkws()
+    out = model_suggest(ws, {"ws": str(ws.root), "goal": "预测销售额", "target": "sales"})
+    assert out["success"] is True
+    assert out["suggestion"]
+
+def test_model_train_returns_metrics():
+    ws = _mkws()
+    from code.csv_agent.servers.data_processor import data_clean, feature_engineer
+    data_clean(ws, {"ws": str(ws.root), "fill": "median"})
+    feature_engineer(ws, {"ws": str(ws.root)})
+    out = model_train(ws, {"ws": str(ws.root), "target": "sales"})
+    assert out["success"] is True
+    assert "rmse" in out["metrics"]
+    assert out["feature_importance"]
