@@ -61,6 +61,70 @@
     }
   }
 
+  /* ---- LLM 配置弹窗 ---- */
+  function bindLlmConfig() {
+    const modal = $("#llmModal");
+    const status = $("#llmStatus");
+    const showStatus = (msg, ok) => {
+      status.textContent = msg;
+      status.className = "info " + (ok ? "ok" : "err");
+    };
+
+    $("#llmConfigBtn").addEventListener("click", async () => {
+      status.textContent = "";
+      status.className = "info muted";
+      try {
+        const c = await api("/api/llm/config");
+        $("#llmBaseUrl").value = c.base_url && c.base_url !== "默认" ? c.base_url : "";
+        $("#llmModel").value = c.model || "";
+        $("#llmApiKey").value = "";
+        if (c.using_env_defaults) {
+          showStatus("当前使用服务端 .env 默认配置" + (c.model ? `（模型：${c.model}）` : ""), true);
+        } else {
+          showStatus(`已使用自定义配置（模型：${c.model || "—"}）`, true);
+        }
+      } catch (e) { showStatus("读取配置失败：" + e.message, false); }
+      modal.style.display = "flex";
+    });
+
+    $("#llmCloseBtn").addEventListener("click", () => (modal.style.display = "none"));
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+
+    $("#llmSaveBtn").addEventListener("click", async () => {
+      const body = {
+        api_key: $("#llmApiKey").value.trim(),
+        base_url: $("#llmBaseUrl").value.trim(),
+        model_name: $("#llmModel").value.trim(),
+      };
+      try {
+        const r = await api("/api/llm/config", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (r.success) {
+          showStatus(`配置已生效${r.model ? `（模型：${r.model}）` : ""}`, true);
+          toast("LLM 配置已更新");
+          bindHealth(); // 刷新顶部运行模式徽标
+        } else {
+          showStatus(`配置未生效：${r.error || "未知错误"}`, false);
+        }
+      } catch (e) { showStatus("保存失败：" + e.message, false); }
+    });
+
+    $("#llmResetBtn").addEventListener("click", async () => {
+      try {
+        const r = await api("/api/llm/config", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ api_key: "", base_url: "", model_name: "" }),
+        });
+        $("#llmApiKey").value = $("#llmBaseUrl").value = $("#llmModel").value = "";
+        showStatus(`已恢复 .env 默认配置${r.model ? `（模型：${r.model}）` : ""}`, true);
+        toast("已恢复 .env 默认配置");
+        bindHealth();
+      } catch (e) { showStatus("恢复失败：" + e.message, false); }
+    });
+  }
+
   /* ---- 页签切换 ---- */
   function bindTabs() {
     $$(".tab").forEach((t) =>
@@ -78,6 +142,7 @@
     $("#analyzeBtn").addEventListener("click", runAnalyze);
     $("#runsBtn").addEventListener("click", loadRuns);
     $("#refreshBtn").addEventListener("click", () => { bindHealth(); loadRuns(); loadTools(); });
+    bindLlmConfig();
     $("#runSelect").addEventListener("change", onSelectRun);
   }
 

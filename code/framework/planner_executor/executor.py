@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -222,6 +223,23 @@ class TraceLogger:
 # Executor
 # ---------------------------------------------------------------------------
 
+# 中文停用字（用于关键词匹配，避免单字噪音）
+_CJK_STOP: Set[str] = {
+    "的", "了", "和", "与", "及", "并", "或", "是", "在", "个", "一",
+    "这", "那", "为", "对", "也", "都", "等", "做", "用", "上", "下",
+}
+
+
+def _expected_tokens(token: str) -> List[str]:
+    """把单个关键词 token 拆成可匹配的最小单元。
+
+    - 含中文字符的 token（中文整句）按单字拆分，过滤停用字；
+    - 纯英文/数字 token 原样返回。
+    """
+    if not re.search(r"[\u4e00-\u9fff]", token):
+        return [token]
+    return [ch for ch in token if ch not in _CJK_STOP]
+
 
 class Executor:
     """任务执行器，负责执行单个子任务。
@@ -278,7 +296,7 @@ class Executor:
 
         try:
             # 1. 选择合适的工具
-            tool_name = self._select_tool(task_node, registry)
+            tool_name = self._select_tool(task_node, registry, client)
 
             # 2. 执行任务
             if tool_name:
@@ -326,9 +344,11 @@ class Executor:
     def handle_failure(
         self, task_node: TaskNode, error: Exception
     ) -> ExecutionResult:
-        """处理任务执行失败。
+        """处理任务执行失败，返回失败结果。
 
-        判断是否可重试，进行重试或标记为失败。
+        真正的重试统一由 Scheduler 负责（它会在下一批把节点重置为 PENDING
+        并重新调度）。这里只返回失败标记，不再自行递增 retry_count，
+        避免与 Scheduler._handle_failure 对同一节点重复计数、导致重试次数提前耗尽。
 
         Args:
             task_node: 失败的任务节点。
@@ -337,37 +357,18 @@ class Executor:
         Returns:
             ExecutionResult。
         """
-        # 判断是否可重试
-        retryable = self._is_retryable(error)
-
-        if retryable and task_node.retry_count < task_node.max_retries:
-            task_node.retry_count += 1
-            logger.warning(
-                "Task %s failed, retrying (%d/%d): %s",
-                task_node.task_id[:8],
-                task_node.retry_count,
-                task_node.max_retries,
-                str(error),
-            )
-            return ExecutionResult(
-                task_id=task_node.task_id,
-                status=TaskStatus.FAILED,
-                error=str(error),
-                retry_count=task_node.retry_count,
-            )
-        else:
-            logger.error(
-                "Task %s permanently failed after %d retries: %s",
-                task_node.task_id[:8],
-                task_node.retry_count,
-                str(error),
-            )
-            return ExecutionResult(
-                task_id=task_node.task_id,
-                status=TaskStatus.FAILED,
-                error=str(error),
-                retry_count=task_node.retry_count,
-            )
+        logger.error(
+            "Task %s failed: %s",
+            task_node.task_id[:8],
+            str(error),
+        )
+        return ExecutionResult(
+            task_id=task_node.task_id,
+            status=TaskStatus.FAILED,
+            result=None,
+            error=str(error),
+            retry_count=task_node.retry_count,
+        )
 
     def verify_result(
         self, task_node: TaskNode, result: Any
@@ -410,12 +411,14 @@ class Executor:
             result_str = str(result).lower()
             # 预期输出中的关键词至少有 30% 出现在结果中
             keywords = [
-                w for w in expected_lower.split()
+                kw
+                for w in expected_lower.split()
                 if len(w) > 2 and w not in ("the", "for", "and", "一个", "完成", "的")
+                for kw in _expected_tokens(w)
             ]
             if keywords:
                 matched = sum(1 for kw in keywords if kw in result_str)
-                match_ratio = matched / len(keywords)
+                match_ratio = matched / len(keywords) if keywords else 0.0
                 if match_ratio < 0.3:
                     logger.warning(
                         "Task %s result matches only %.0f%% of expected keywords",
@@ -431,7 +434,10 @@ class Executor:
     # ------------------------------------------------------------------
 
     def _select_tool(
-        self, task_node: TaskNode, registry: ToolRegistry
+        self,
+        task_node: TaskNode,
+        registry: ToolRegistry,
+        llm_client: Any = None,
     ) -> Optional[str]:
         """根据任务描述选择合适的工具。
 
@@ -440,13 +446,15 @@ class Executor:
         Args:
             task_node: 任务节点。
             registry: 工具注册表。
+            llm_client: 覆盖的 LLM 客户端；为 None 时使用 self.llm_client。
 
         Returns:
             工具名称，没有合适工具则返回 None。
         """
+        client = self.llm_client if llm_client is None else llm_client
         # 如果有 LLM，尝试智能选择
-        if self.llm_client is not None:
-            tool_name = self._llm_select_tool(task_node, registry)
+        if client is not None:
+            tool_name = self._llm_select_tool(task_node, registry, client)
             if tool_name:
                 return tool_name
 
@@ -454,9 +462,16 @@ class Executor:
         return registry.find_tool(task_node.description)
 
     def _llm_select_tool(
-        self, task_node: TaskNode, registry: ToolRegistry
+        self,
+        task_node: TaskNode,
+        registry: ToolRegistry,
+        llm_client: Any = None,
     ) -> Optional[str]:
         """使用 LLM 智能选择工具。"""
+        client = self.llm_client if llm_client is None else llm_client
+        if client is None:
+            return None
+
         tools_list = registry.list_tools()
         if not tools_list:
             return None
@@ -473,15 +488,13 @@ class Executor:
 
         try:
             # 本项目 LLMClient：提供 chat_completion 高层方法，使用其配置的模型/base_url
-            if hasattr(self.llm_client, "chat_completion"):
-                message = self.llm_client.chat_completion(
+            if hasattr(client, "chat_completion"):
+                message = client.chat_completion(
                     messages, temperature=0.0, max_tokens=50
                 )
                 tool_name = (message.content or "").strip()
-            elif hasattr(self.llm_client, "chat") and hasattr(
-                self.llm_client.chat, "completions"
-            ):
-                response = self.llm_client.chat.completions.create(
+            elif hasattr(client, "chat") and hasattr(client.chat, "completions"):
+                response = client.chat.completions.create(
                     model="gpt-4",
                     messages=messages,
                     temperature=0.0,
@@ -518,7 +531,11 @@ class Executor:
                 except TypeError:
                     return tool(task_node.description)
         elif hasattr(tool, "execute"):
-            return tool.execute(task_node.description, **task_node.metadata)
+            # description 按位置传入，避免 metadata 中同名键导致关键字冲突
+            metadata = {
+                k: v for k, v in task_node.metadata.items() if k != "description"
+            }
+            return tool.execute(task_node.description, **metadata)
         elif hasattr(tool, "run"):
             return tool.run(task_node.description)
         else:
@@ -544,33 +561,6 @@ class Executor:
             return {"output": llm_client(prompt)}
         else:
             return {"output": f"LLM execution not available for: {task_node.description}"}
-
-    @staticmethod
-    def _is_retryable(error: Exception) -> bool:
-        """判断异常是否可重试。"""
-        retryable_types = (
-            TimeoutError,
-            ConnectionError,
-            OSError,
-        )
-        if isinstance(error, retryable_types):
-            return True
-
-        # 检查错误消息中的关键词
-        error_msg = str(error).lower()
-        retryable_keywords = [
-            "timeout",
-            "connection",
-            "temporary",
-            "unavailable",
-            "rate limit",
-            "too many requests",
-            "server error",
-            "503",
-            "502",
-            "429",
-        ]
-        return any(kw in error_msg for kw in retryable_keywords)
 
     def __repr__(self) -> str:
         return (
@@ -692,8 +682,12 @@ class PlannerExecutorAgent:
         # 创建会话
         session_id = self.session_manager.create_session(task_description)
 
-        # 1. 判断是否需要规划
-        if self.auto_planning and self._task_complexity(task_description) < self.complexity_threshold:
+        # 1. 判断是否需要规划（force_plan=True 时强制走 LLM 规划，不做复杂度短路）
+        if (
+            not force_plan
+            and self.auto_planning
+            and self._task_complexity(task_description) < self.complexity_threshold
+        ):
             self.trace_logger.log("planning_skipped", {"reason": "task_too_simple"})
             plan_dag = self._build_simple_plan(task_description)
         else:

@@ -4,4 +4,7 @@ from .data_processor import DataProcessorServer
 from .visualizer import VisualizerServer
 from .model_trainer import ModelTrainerServer
 from .report_generator import ReportGeneratorServer
-__all__ = ["DataLoaderServer", "DataProcessorServer", "VisualizerServer", "ModelTrainerServer", "ReportGeneratorServer"]
+from .statistics import StatisticsServer
+from .query import QueryServer
+__all__ = ["DataLoaderServer", "DataProcessorServer", "VisualizerServer", "ModelTrainerServer",
+           "ReportGeneratorServer", "StatisticsServer", "QueryServer"]

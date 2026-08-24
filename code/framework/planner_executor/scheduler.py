@@ -172,8 +172,10 @@ class ParallelScheduler:
                     if result.status == TaskStatus.COMPLETED:
                         completed += 1
                     elif result.status == TaskStatus.FAILED:
-                        failed += 1
-                        self._handle_failure(task_dag, task_id, result)
+                        final_status = self._handle_failure(task_dag, task_id, result)
+                        # 只有终止性失败才计入 failed；被重置待重试（PENDING）的不算
+                        if final_status != TaskStatus.PENDING:
+                            failed += 1
                     elif result.status == TaskStatus.SKIPPED:
                         skipped += 1
 
@@ -256,13 +258,14 @@ class ParallelScheduler:
         dag: TaskDAG,
         task_id: str,
         result: ExecutionResult,
-    ) -> None:
-        """处理任务失败。
+    ) -> "TaskStatus":
+        """处理任务失败，并返回节点在失败处理后的最终状态。
 
-        Args:
-            dag: 任务 DAG。
-            task_id: 失败的任务 ID。
-            result: 执行结果。
+        - RETRY 且未超限：重置为 PENDING（下一批重新调度），返回 PENDING；
+        - RETRY 且已超限 / ABORT：保持 FAILED，返回 FAILED；
+        - SKIP：标记 SKIPPED，返回 SKIPPED。
+
+        retry_count 只在这里统一递增，Executor 不再自增，避免双重计数。
         """
         node = dag.get_node(task_id)
 
@@ -277,16 +280,21 @@ class ParallelScheduler:
                     node.max_retries,
                 )
                 time.sleep(self.retry_delay)
+                return TaskStatus.PENDING
             else:
                 logger.error(
                     "Task %s failed after %d retries",
                     task_id[:8],
                     node.max_retries,
                 )
+                return TaskStatus.FAILED
 
         elif self.failure_strategy == FailureStrategy.SKIP:
             node.status = TaskStatus.SKIPPED
             logger.info("Task %s skipped", task_id[:8])
+            return TaskStatus.SKIPPED
 
         elif self.failure_strategy == FailureStrategy.ABORT:
             logger.error("Aborting due to task %s failure", task_id[:8])
+
+        return TaskStatus.FAILED

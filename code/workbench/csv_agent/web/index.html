@@ -14,6 +14,7 @@
       <span class="mode-badge" id="modeText"></span>
     </div>
     <div class="top-actions">
+      <button class="btn ghost" id="llmConfigBtn">LLM 配置</button>
       <button class="btn ghost" id="refreshBtn">刷新</button>
     </div>
   </header>
@@ -73,6 +74,27 @@
   </main>
 
   <div id="toast"></div>
-  <script src="/web/app.js?v=3"></script>
+
+  <!-- LLM 配置弹窗 -->
+  <div class="modal-mask" id="llmModal" style="display:none">
+    <div class="modal">
+      <h3>LLM 配置</h3>
+      <p class="muted">填写 API Key / Base URL / 模型名，后端据此构建 LLM 客户端。留空字段将回退使用服务端 .env 默认配置。</p>
+      <label class="field"><span>API Key</span>
+        <input type="password" id="llmApiKey" placeholder="sk-..." autocomplete="off"></label>
+      <label class="field"><span>Base URL</span>
+        <input type="text" id="llmBaseUrl" placeholder="https://api.openai.com/v1"></label>
+      <label class="field"><span>模型名称</span>
+        <input type="text" id="llmModel" placeholder="gpt-4o-mini"></label>
+      <div class="btn-row">
+        <button class="btn primary" id="llmSaveBtn">保存配置</button>
+        <button class="btn" id="llmResetBtn">恢复 .env 默认</button>
+        <button class="btn ghost" id="llmCloseBtn">关闭</button>
+      </div>
+      <div id="llmStatus" class="info muted"></div>
+    </div>
+  </div>
+
+  <script src="/web/app.js?v=4"></script>
 </body>
 </html>

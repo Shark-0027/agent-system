@@ -17,9 +17,22 @@ class CsvAgent:
     用 PlannerExecutorAgent 执行用户目标 → 汇总并兜底生成报告。
     """
 
-    def __init__(self, use_llm: bool = True, memory: Optional[MemoryStore] = None):
+    def __init__(
+        self,
+        use_llm: bool = True,
+        memory: Optional[MemoryStore] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
+    ):
+        """初始化编排入口。
+
+        Args:
+            use_llm: 是否使用 LLM（False 时走本地规则模式）。
+            memory: 记忆存储，缺省自建。
+            llm_config: LLM 客户端覆盖配置（api_key/base_url/model_name）。
+                未提供的字段由 LLMClient 回退读取环境变量/.env，不硬编码。
+        """
         self._use_llm = use_llm
-        self.llm = LLMClient() if use_llm else None
+        self.llm = LLMClient(**(llm_config or {})) if use_llm else None
         self.tool_registry: ToolRegistry = build_tool_registry()
         self.session_manager = SessionManager()
         self.trace_logger = TraceLogger("csv_agent")

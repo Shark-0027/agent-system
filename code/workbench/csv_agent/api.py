@@ -24,17 +24,32 @@ from code.workbench.csv_agent.datagen import gen_sales
 from code.workbench.csv_agent.memory import MemoryStore
 from code.workbench.csv_agent.orchestrator import CsvAgent
 from code.workbench.csv_agent.workspace import Workspace, WorkspaceContext
+from code.framework.agent_runtime import LLMClient
 
 app = FastAPI(title="CSV 数据分析 Agent 工作台")
 
 _memory = MemoryStore(str(Path(tempfile.gettempdir()) / "csv_agent_memory.db"))
-_tools = build_tool_registry()
 # run_id -> workspace 根目录（工作区产物均落在其下）
 _runs: Dict[str, Any] = {}
 # 内存中保留的运行数上限，超限时清理最旧运行与其工作区目录，防止长期运行内存/磁盘泄漏
 _MAX_RUNS = 200
 # 首次确定后缓存的服务运行模式（"llm"|"local"）
 _MODE_CACHE: Optional[str] = None
+# 前端通过 /api/llm/config 传入的 LLM 覆盖配置（api_key/base_url/model_name）。
+# 为 None 时后端使用 .env 中的默认配置，不硬编码。
+_LLM_OVERRIDE: Optional[Dict[str, Optional[str]]] = None
+
+# 允许在 /api/llm/config 中设置的前端字段（白名单，避免任意键注入）
+_LLM_FIELDS = ("api_key", "base_url", "model_name")
+
+# 工具注册表在 LLM 配置确定后构建（QueryServer 需要用到 LLM 配置穿透）
+_tools = build_tool_registry(llm_config=_LLM_OVERRIDE)
+
+
+def _rebuild_tools() -> None:
+    """LLM 覆盖配置变更后重建工具注册表，使查询服务及时采用新的 LLM 配置。"""
+    global _tools
+    _tools = build_tool_registry(llm_config=_LLM_OVERRIDE)
 
 
 def _trim_runs() -> None:
@@ -49,12 +64,16 @@ def _trim_runs() -> None:
 def _build_agent() -> Dict[str, Any]:
     """构造编排 Agent，并报告实际采用的运行模式。
 
-    优先使用 LLM 模式（use_llm=True）；当未配置 OPENAI_API_KEY 等导致
-    LLMClient 初始化失败时，回退到本地规则模式（use_llm=False）。
+    优先使用 LLM 模式（use_llm=True）。LLM 客户端配置优先取前端传入的
+    /api/llm/config 覆盖，未覆盖字段回退 .env 默认；当最终因缺少 api_key 等
+    导致 LLMClient 初始化失败时，回退到本地规则模式（use_llm=False）。
     返回 {"agent": CsvAgent, "mode": "llm"|"local"}。
     """
     try:
-        return {"agent": CsvAgent(use_llm=True, memory=_memory), "mode": "llm"}
+        return {
+            "agent": CsvAgent(use_llm=True, memory=_memory, llm_config=_LLM_OVERRIDE),
+            "mode": "llm",
+        }
     except Exception:  # noqa: BLE001 无 LLM key 时回退本地模式
         return {"agent": CsvAgent(use_llm=False, memory=_memory), "mode": "local"}
 
@@ -140,6 +159,68 @@ def health():
     mode = _resolve_mode()
     return {"status": "ok", "mode": mode,
             "mode_label": "LLM 自动编排" if mode == "llm" else "本地规则模式"}
+
+
+# ---------------------------------------------------------------------------
+# LLM 配置（前端传入 key/base_url/模型名，后端据此构建 LLM 客户端）
+# ---------------------------------------------------------------------------
+@app.get("/api/llm/config")
+def get_llm_config():
+    """读取当前 LLM 配置（不回显 api_key，避免泄露凭据）。"""
+    cfg = _LLM_OVERRIDE or {}
+    try:
+        llm = LLMClient(**cfg)
+        model, base_url = llm.model_name, llm.base_url or "默认"
+    except Exception:  # noqa: BLE001 配置不可用时给出占位
+        model, base_url = None, None
+    return {
+        "configured": bool(cfg),
+        "using_env_defaults": not cfg,
+        "model": model,
+        "base_url": base_url,
+        "mode": _resolve_mode(),
+    }
+
+
+@app.post("/api/llm/config")
+def set_llm_config(body: Dict[str, Any] = Body(...)):
+    """设置前端传入的 LLM 配置并据此构建/校验 LLM 客户端。
+
+    body 仅接受白名单字段 {api_key, base_url, model_name}；
+    传空或省略表示清除覆盖、回退使用 .env 默认配置。不可硬编码。
+    """
+    global _MODE_CACHE, _LLM_OVERRIDE
+
+    override: Dict[str, str] = {}
+    for field in _LLM_FIELDS:
+        value = body.get(field)
+        if value and str(value).strip():
+            override[field] = str(value).strip()
+
+    # 用新配置构造 LLM 客户端校验是否可用（构造级校验，不发起网络请求）
+    try:
+        llm = LLMClient(**override)
+        ok, err = True, None
+        model, base_url = llm.model_name, llm.base_url or "默认"
+    except Exception as e:  # noqa: BLE001
+        ok, err = False, str(e)
+        model, base_url = None, None
+
+    _LLM_OVERRIDE = override or None
+    # 配置变更后失效模式缓存，下次请求（/api/health 等）重新探测
+    _MODE_CACHE = None
+    # LLM 配置变动后重建工具注册表，让查询服务采用最新配置
+    _rebuild_tools()
+
+    return {
+        "success": ok,
+        "error": err,
+        "configured": _LLM_OVERRIDE is not None,
+        "using_env_defaults": _LLM_OVERRIDE is None,
+        "model": model,
+        "base_url": base_url,
+        "mode": _resolve_mode(),
+    }
 
 
 # ---------------------------------------------------------------------------

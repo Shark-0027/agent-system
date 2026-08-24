@@ -1,18 +1,19 @@
 from __future__ import annotations
-from typing import List
+from typing import Any, Dict, List, Optional
 from code.framework.agent_runtime import Tool
 from code.framework.planner_executor import ToolRegistry
 from code.framework.mcp import MCPClient
 from code.workbench.csv_agent.servers import (DataLoaderServer, DataProcessorServer, VisualizerServer,
-                                    ModelTrainerServer, ReportGeneratorServer)
+                                    ModelTrainerServer, ReportGeneratorServer, StatisticsServer, QueryServer)
 
-def all_servers() -> List:
+def all_servers(llm_config: Optional[Dict[str, Any]] = None) -> List:
     return [DataLoaderServer(), DataProcessorServer(), VisualizerServer(),
-            ModelTrainerServer(), ReportGeneratorServer()]
+            ModelTrainerServer(), ReportGeneratorServer(), StatisticsServer(),
+            QueryServer(llm_config=llm_config)]
 
-def connect_mcp_servers() -> MCPClient:
+def connect_mcp_servers(llm_config: Optional[Dict[str, Any]] = None) -> MCPClient:
     client = MCPClient()
-    for srv in all_servers():
+    for srv in all_servers(llm_config=llm_config):
         client.connect_server(srv)
     return client
 
@@ -47,9 +48,9 @@ class _PlannerTool:
     def execute(self, **kwargs: dict) -> dict:
         return self._tool.execute(**kwargs)
 
-def build_tool_registry() -> ToolRegistry:
+def build_tool_registry(llm_config: Optional[Dict[str, Any]] = None) -> ToolRegistry:
     reg = ToolRegistry()
-    for srv in all_servers():
+    for srv in all_servers(llm_config=llm_config):
         for schema in srv.tools:
             handler = srv._tools[schema.name].handler
             name = schema.name

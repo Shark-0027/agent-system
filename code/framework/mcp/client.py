@@ -7,6 +7,7 @@ MCP Client
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -135,6 +136,7 @@ class MCPClient:
         self._require_permission: bool = require_permission
         self._trace_records: List[TraceRecord] = []
         self._trace_counter: int = 0
+        self._trace_lock: threading.Lock = threading.Lock()
         self._permissions: Dict[str, PermissionLevel] = {}
 
     # -- 属性 ------------------------------------------------------------------
@@ -352,16 +354,19 @@ class MCPClient:
     # -- Trace 记录 ------------------------------------------------------------
 
     def _generate_trace_id(self) -> str:
-        """生成唯一 Trace ID。"""
-        self._trace_counter += 1
-        return f"trace_{self._trace_counter}_{int(time.time() * 1000)}"
+        """生成唯一 Trace ID（线程安全）。"""
+        with self._trace_lock:
+            self._trace_counter += 1
+            counter = self._trace_counter
+        return f"trace_{counter}_{int(time.time() * 1000)}"
 
     def _record_trace(self, record: TraceRecord) -> None:
-        """记录 Trace。"""
-        self._trace_records.append(record)
-        # 控制内存
-        if len(self._trace_records) > self.MAX_TRACE_HISTORY:
-            self._trace_records = self._trace_records[-self.MAX_TRACE_HISTORY:]
+        """记录 Trace（线程安全）。"""
+        with self._trace_lock:
+            self._trace_records.append(record)
+            # 控制内存
+            if len(self._trace_records) > self.MAX_TRACE_HISTORY:
+                self._trace_records = self._trace_records[-self.MAX_TRACE_HISTORY:]
 
     def get_trace_history(
         self,
