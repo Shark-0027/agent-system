@@ -156,6 +156,26 @@ class ToolRegistry:
         """
         return list(self._tools.keys())
 
+    # -- 统一协议接入（framework.registry） ----------------------------------
+    def register_tool(self, name: Any, handler: Optional[Callable[..., Any]] = None,
+                      description: str = "", **extra: Any) -> None:
+        """统一注册入口：兼容传 Tool 对象或 (name, handler, description)。"""
+        if isinstance(name, Tool) or hasattr(name, "execute"):
+            bound = name
+        else:
+            bound = Tool(
+                name=name,
+                description=description or str(name),
+                parameters=extra.pop("parameters", {}),
+                function=handler,
+            )
+        self.register(bound)
+
+    def find_tool(self, task_description: str) -> Optional[str]:
+        """统一协议要求：按描述返回最匹配工具名（基于 search_by_description）。"""
+        matches = self.search_by_description(task_description)
+        return matches[0].name if matches else None
+
     def get_tools_openai_format(self) -> List[Dict[str, Any]]:
         """获取所有工具的 OpenAI function calling 格式列表。
 

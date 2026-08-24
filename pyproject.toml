@@ -20,6 +20,7 @@ dependencies = [
     "uvicorn>=0.29.0",
     "httpx>=0.28.1",
     "python-multipart>=0.0.32",
+    "python-pptx>=1.0.2",
 ]
 
 [project.optional-dependencies]

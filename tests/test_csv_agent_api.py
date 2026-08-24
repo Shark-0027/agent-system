@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -40,6 +41,49 @@ def test_analyze_and_report(tmp_path):
     rr = client.get(f"/api/report/{run_id}")
     assert rr.status_code == 200
     assert "报告" in rr.text
+    # 可观测性：全流程分析后应有执行轨迹可查
+    tr = client.get(f"/api/run/{run_id}/trace")
+    assert tr.status_code == 200
+    trace = tr.json()
+    assert "events" in trace
+    assert isinstance(trace["events"], list)
+
+
+def test_run_analyze_async_and_progress():
+    client = TestClient(app)
+    r = _upload(client)
+    rid = r.json()["run_id"]
+    # 异步触发
+    a = client.post(f"/api/run/{rid}/analyze?async_mode=true",
+                    data={"goal": "分析销售额，给出建议"})
+    assert a.status_code == 200
+    assert a.json()["started"] is True
+    # 轮询直至完成（进度状态应经历 running→done/failed）
+    seen = set()
+    for _ in range(300):
+        p = client.get(f"/api/run/{rid}/progress").json()
+        seen.add(p["status"])
+        if p["status"] in ("done", "failed"):
+            break
+        time.sleep(0.1)
+    assert "running" in seen, f"should observe running before terminal state: {seen}"
+    final = client.get(f"/api/run/{rid}/progress").json()
+    assert final["status"] in ("done", "failed")
+    if final["status"] == "done":
+        assert "success" in final
+        # 有执行轨迹可查
+        assert client.get(f"/api/run/{rid}/trace").status_code == 200
+    # 同步模式兼容旧调用
+    s = client.post(f"/api/run/{rid}/analyze", data={"goal": "再分析一次"})
+    assert s.status_code == 200
+    assert s.json()["mode"] in ("llm", "local")
+
+
+def test_run_llm_mode():
+    client = TestClient(app)
+    r = client.get("/api/run/none/llm-mode")
+    assert r.status_code == 200
+    assert r.json()["mode"] in ("llm", "local")
 
 
 def _upload(client, n=30):

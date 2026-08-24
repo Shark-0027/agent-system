@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import io
+import json
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -59,6 +61,25 @@ def _trim_runs() -> None:
         _runs.pop(oldest_id, None)
         if isinstance(oldest_root, Path):
             shutil.rmtree(oldest_root, ignore_errors=True)
+
+
+# run_id -> 后台异步分析的实时状态（可观测性进度推送数据源）
+_ANALYZE_STATE: Dict[str, Dict[str, Any]] = {}
+
+
+def _analyze_background(rid: str, goal: str) -> None:
+    """在后台线程执行一次全流程分析，并实时刷新 _ANALYZE_STATE 供 /progress 轮询。"""
+    _ANALYZE_STATE[rid] = {"status": "running", "goal": goal, "error": None}
+    try:
+        built = _build_agent()
+        out = built["agent"].analyze(Workspace(run_id=rid, root=_run_root(rid)), goal)
+        _ANALYZE_STATE[rid].update({
+            "status": "done",
+            "success": bool(out.get("success") == True),
+            "mode": built["mode"],
+        })
+    except Exception as e:  # noqa: BLE001 客户端只关心最终状态与错误信息
+        _ANALYZE_STATE[rid].update({"status": "failed", "error": str(e)})
 
 
 def _build_agent() -> Dict[str, Any]:
@@ -124,12 +145,12 @@ def _clean(obj: Any) -> Any:
     return _jsonable(obj)
 
 
-def _preview(root: Path) -> Dict[str, Any]:
-    """读取 input.csv/cleaned.csv 返回样例预览（NaN 归一化为 None 以兼容 JSON）。"""
-    path = root / ("cleaned.csv" if (root / "cleaned.csv").exists() else "input.csv")
-    if not path.exists():
+def _preview(root: Path, path: Optional[Path] = None) -> Dict[str, Any]:
+    """读取指定 CSV（缺省自动选择 cleaned/input）返回样例预览（NaN 归一化为 None）。"""
+    p = path or root / ("cleaned.csv" if (root / "cleaned.csv").exists() else "input.csv")
+    if not p.exists():
         return {"success": False, "error": "no csv available"}
-    df = pd.read_csv(path)
+    df = pd.read_csv(p)
     sample = [[_jsonable(v) for v in row] for row in df.head(10).astype(object).values]
     columns = list(map(str, df.columns))
     return {"success": True, "rows": int(len(df)), "cols": int(len(df.columns)),
@@ -259,37 +280,70 @@ def sample():
 # ---------------------------------------------------------------------------
 # 运行管理
 # ---------------------------------------------------------------------------
+def _run_meta(root: Path) -> Dict[str, Any]:
+    """从工作区提取运行元数据，供列表与详情使用。"""
+    trace: Dict[str, Any] = {}
+    trace_path = root / "trace.json"
+    if trace_path.exists():
+        try:
+            trace = json.loads(trace_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            pass
+    title = trace.get("goal") or rid_from_root(root)
+    return {
+        "title": title,
+        "created_at": int(root.stat().st_ctime),
+        "mode": trace.get("mode") or _resolve_mode(),
+    }
+
+
+def rid_from_root(root: Path) -> str:
+    return root.name
+
+
 @app.get("/api/runs")
 def list_runs():
     """列出所有运行及其基本信息。"""
     out = []
     for rid, root in _runs.items():
-        out.append({"run_id": rid, "root": str(root),
-                    "has_report": (root / "report.md").exists(),
-                    "has_cleaned": (root / "cleaned.csv").exists(),
-                    "n_charts": len(list((root / "charts").glob("*.png"))) if (root / "charts").exists() else 0})
-    out.sort(key=lambda r: r["run_id"], reverse=True)
+        meta = _run_meta(root)
+        out.append({
+            "run_id": rid,
+            "title": meta["title"],
+            "created_at": meta["created_at"],
+            "mode": meta["mode"],
+            "has_report": (root / "report.md").exists(),
+            "has_cleaned": (root / "cleaned.csv").exists(),
+            "n_charts": len(list((root / "charts").glob("*.png"))) if (root / "charts").exists() else 0,
+        })
+    out.sort(key=lambda r: r["created_at"], reverse=True)
     return {"runs": out}
 
 
 @app.get("/api/run/{rid}/info")
 def run_info(rid: str):
     root = _run_root(rid)
-    return {"run_id": rid, "root": str(root),
-            "has_report": (root / "report.md").exists(),
-            "has_cleaned": (root / "cleaned.csv").exists(),
-            "schema": root.joinpath("schema.json").read_text(encoding="utf-8") if (root / "schema.json").exists() else None}
+    meta = _run_meta(root)
+    preview = _preview(root)
+    return {
+        "run_id": rid,
+        "title": meta["title"],
+        "rows": preview.get("rows", 0),
+        "cols": preview.get("cols", 0),
+        "has_report": (root / "report.md").exists(),
+        "has_cleaned": (root / "cleaned.csv").exists(),
+        "schema": root.joinpath("schema.json").read_text(encoding="utf-8") if (root / "schema.json").exists() else None,
+    }
 
 
 @app.get("/api/run/{rid}/data")
 def run_data(rid: str, which: str = Query("auto", description="auto|input|cleaned")):
+    if which not in ("auto", "input", "cleaned"):
+        raise HTTPException(400, "which must be input|cleaned|auto")
+    path = None
     if which != "auto":
-        if which not in ("input", "cleaned"):
-            raise HTTPException(400, "which must be input|cleaned|auto")
         path = _run_root(rid) / f"{which}.csv"
-        if not path.exists():
-            raise HTTPException(404, f"{which}.csv not found")
-    result = _preview(_run_root(rid))
+    result = _preview(_run_root(rid), path)
     if not result.get("success"):
         raise HTTPException(404, result.get("error", "no data"))
     return result
@@ -328,8 +382,57 @@ def run_tool(rid: str, body: Dict[str, Any] = Body(...)):
 
 
 # ---------------------------------------------------------------------------
-# 一键全流程分析
+# 全流程异步分析（基于既有 run）+ 进度轮询 + 执行轨迹
 # ---------------------------------------------------------------------------
+@app.post("/api/run/{rid}/analyze")
+def run_analyze(rid: str, goal: str = Form(...), async_mode: bool = Query(False)):
+    """在既有运行上执行全流程分析。
+
+    async_mode=True 时后台线程执行，通过 /api/run/{rid}/progress 轮询进度；
+    否则同步返回结果（兼容旧调用）。无 LLM 时回退本地规则模式。
+    """
+    root = _run_root(rid)
+    if async_mode:
+        threading.Thread(
+            target=_analyze_background, args=(rid, goal), daemon=True
+        ).start()
+        return {"started": True, "run_id": rid}
+    built = _build_agent()
+    out = built["agent"].analyze(Workspace(run_id=rid, root=root), goal)
+    return {
+        "success": out.get("success"),
+        "run_id": rid,
+        "report": str(Workspace(run_id=rid, root=root).report_md),
+        "error": out.get("error"),
+        "mode": built["mode"],
+    }
+
+
+@app.get("/api/run/{rid}/progress")
+def run_progress(rid: str):
+    """查询一次异步全流程分析的实时进度（无记录时返回 idle）。"""
+    st = _ANALYZE_STATE.get(rid)
+    if not st:
+        return {"status": "idle"}
+    return st
+
+
+@app.get("/api/run/{rid}/trace")
+def run_trace(rid: str):
+    """返回一次分析的结构化执行轨迹（规划/调度/工具事件与耗时）。"""
+    root = _run_root(rid)
+    p = root / "trace.json"
+    if not p.exists():
+        raise HTTPException(404, "trace not found")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+@app.get("/api/run/{rid}/llm-mode")
+def run_llm_mode(rid: str):
+    """单次运行实际采用的 LLM 模式（llm|local）。"""
+    return {"mode": _resolve_mode()}
+
+
 @app.post("/api/analyze")
 def analyze(goal: str = Form(...), file: UploadFile = File(...)):
     ws = Workspace.create()
@@ -378,7 +481,7 @@ def run_charts(rid: str):
     root = _run_root(rid)
     out = []
     for p in sorted((root / "charts").glob("*.png")):
-        out.append({"name": p.name, "kind": "hist" if p.stem.startswith("hist_") else "corr",
+        out.append({"name": p.name,
                     "url": f"/api/run/{rid}/chart?name={p.name}"})
     return {"charts": out}
 

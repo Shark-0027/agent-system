@@ -86,16 +86,18 @@ def run_comparison(runs: int = 3) -> List[Dict[str, Any]]:
                       for r in pe_results]),
                  "steps": f"{sum(1 for r in pe_results if r['success'])}/{runs}",
                  "duration": round(sum(r["duration"] for r in pe_results) / runs, 4)})
-    # --- 简单 Agent Loop（顺序 noun 调工具）---
-    loop_success = _run_simple_loop(goal)
+    # --- 简单 Agent Loop（固定顺序调工具，不重规划）---
+    loop_res = _run_simple_loop(goal)
     rows.append({"engine": "Agent Loop",
-                 "success_rate": 1.0 if loop_success else 0.0,
-                 "steps": "8", "duration": 0.0})
+                 "success_rate": 1.0 if loop_res["success"] else 0.0,
+                 "steps": "8",
+                 "duration": loop_res["duration"]})
     return rows
 
 
-def _run_simple_loop(goal: str) -> bool:
-    """基线：固定顺序调 8 个工具（不重规划），任意失败即 False。"""
+def _run_simple_loop(goal: str) -> dict:
+    """基线：固定顺序调 8 个工具（不重规划），任意失败即失败。返回结果与耗时。"""
+    t0 = time.time()
     ws = Workspace.create()
     ws.save_csv(gen_sales(n=40, dirty=True), "input.csv")
     agent = CsvAgent(use_llm=False)
@@ -116,5 +118,6 @@ def _run_simple_loop(goal: str) -> bool:
     for name, params in steps:
         res = agent.tool_registry.get(name).execute(description=name, params=params)
         if not res.get("success"):
-            return False
-    return ws.report_md.exists()
+            return {"success": False, "duration": round(time.time() - t0, 4)}
+    return {"success": ws.report_md.exists(),
+            "duration": round(time.time() - t0, 4)}

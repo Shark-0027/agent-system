@@ -107,7 +107,7 @@ class DataProcessorServer(MCPServer):
         super().__init__(name="data-processor", description="数据清洗与特征工程")
         self.register_tool(
             schema=ToolSchema(name="data_clean",
-                description="缺失填充、类型转换、异常值处理",
+                description="缺失填充、类型转换、异常值处理与去重",
                 parameters={"type":"object","properties":{"ws":{"type":"string"},"fill":{"type":"string","enum":["median","mean"]}}}),
             handler=lambda **kw: data_clean(_resolve_ws(kw), kw))
         self.register_tool(

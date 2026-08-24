@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from code.framework.agent_runtime import Tool
 from code.framework.planner_executor import ToolRegistry
+from code.framework.registry import create_registry, register_tool as unified_register
 from code.framework.mcp import MCPClient
 from code.workbench.csv_agent.servers import (DataLoaderServer, DataProcessorServer, VisualizerServer,
                                     ModelTrainerServer, ReportGeneratorServer, StatisticsServer, QueryServer)
@@ -49,10 +50,13 @@ class _PlannerTool:
         return self._tool.execute(**kwargs)
 
 def build_tool_registry(llm_config: Optional[Dict[str, Any]] = None) -> ToolRegistry:
-    reg = ToolRegistry()
+    # 通过统一协议建注册表：create_registry("executor") 返回 planner_executor.ToolRegistry
+    # （其 find_tool 是 Executor._select_tool 的关键路径，不能换成无 find_tool 的注册表）。
+    # 外部新增工具只要实现 ToolRegistryProtocol 即可接入，无需关心具体类型。
+    reg = create_registry("executor")
     for srv in all_servers(llm_config=llm_config):
         for schema in srv.tools:
-            handler = srv._tools[schema.name].handler
+            handler = srv.get_tool_handler(schema.name)
             name = schema.name
             desc = schema.description
             params_schema = schema.parameters
@@ -73,5 +77,5 @@ def build_tool_registry(llm_config: Optional[Dict[str, Any]] = None) -> ToolRegi
 
             reg_tool = Tool(name=name, description=desc, parameters=params_schema,
                             function=make_fn(handler))
-            reg.register(name=name, tool=_PlannerTool(reg_tool), description=desc)
+            unified_register(reg, name=name, handler=_PlannerTool(reg_tool), description=desc)
     return reg

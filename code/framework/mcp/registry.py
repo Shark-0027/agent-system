@@ -128,15 +128,37 @@ class ToolRegistry:
         self,
         schema: ToolSchema,
         handler: Optional[Callable[..., Any]] = None,
+        description: str = "",
         server_name: str = "",
+        **extra: Any,
     ) -> None:
-        """注册一个工具。
+        """注册一个工具，双契约兼容。
+
+        - schema 驱动（原有用法）：``register_tool(schema, handler, server_name)``；
+        - 统一协议：``register_tool(name, handler, description, server_name=...)``。
 
         Args:
-            schema: 工具 Schema。
+            schema: 工具 Schema，或统一协议下的工具名称（字符串）。
             handler: 工具处理函数（可选，如果从 Server 调用则不需要）。
+            description: 统一协议下的工具描述（当 schema 为字符串时使用）。
             server_name: 来源 Server 名称（可选）。
+            **extra: 统一协议透传的附加项，如 ``parameters``、``server_name``。
         """
+        if not isinstance(schema, ToolSchema):
+            # 统一协议契约：register_tool(name, handler, description, ...)
+            name = schema
+            desc = description or str(name)
+            server_name = server_name or extra.pop("server_name", "")
+            schema = ToolSchema(
+                name=name,
+                description=desc,
+                parameters=extra.pop("parameters", {}),
+            )
+        else:
+            # 兼容原 schema 驱动调用：register_tool(schema, handler, server_name)
+            server_name = server_name or extra.pop("server_name", "")
+            if not server_name and description:
+                server_name = description
         name = schema.name
         if name in self._tools:
             logger.warning("Tool '%s' already registered, overwriting.", name)
@@ -202,6 +224,20 @@ class ToolRegistry:
     def get_server_name(self, tool_name: str) -> Optional[str]:
         """获取工具来源 Server 名称。"""
         return self._source_map.get(tool_name)
+
+    # -- 统一协议接入（framework.registry） ----------------------------------
+    def list_names(self) -> List[str]:
+        """统一协议：列出全部工具名称。"""
+        return list(self._tools.keys())
+
+    def get(self, name: str) -> Optional[Callable[..., Any]]:
+        """统一协议：返回工具句柄（处理函数）。"""
+        return self.get_tool_handler(name)
+
+    def find_tool(self, task_description: str) -> Optional[str]:
+        """统一协议：按描述返回最匹配工具名。"""
+        results = self.search_tools(task_description, top_k=1)
+        return results[0][0].name if results else None
 
     # -- 工具搜索 --------------------------------------------------------------
 

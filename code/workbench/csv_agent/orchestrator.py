@@ -1,7 +1,7 @@
 """CsvAgent：把一次 CSV 分析目标交给 Planner-Executor 编排执行。"""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from code.workbench.csv_agent.bridge import build_tool_registry
 from code.workbench.csv_agent.memory import MemoryStore
@@ -55,11 +55,25 @@ class CsvAgent:
             schema = loader.execute(description="加载数据", params={"ws": str(workspace.root)})
             # 3. 交给 PlannerExecutorAgent 执行目标（工具会访问 WorkspaceContext/params）
             result: Any = None
+            traces: List[Dict[str, Any]] = []
             try:
-                # force_plan=True：全流程分析强制走 LLM 规划，避免短目标被当作简单任务跳过
-                result = self.agent.run(goal, force_plan=True)
-            except Exception:  # noqa: BLE001
-                result = {}
+                # force_plan=True：全流程分析强制走 LLM 规划，避免短目标被当作简单任务跳过。
+                # run_with_trace 复用 run 的真实执行链路并返回事件级追踪，供可观测性面板使用。
+                result, traces = self.agent.run_with_trace(goal, force_plan=True)
+            except Exception as e:  # noqa: BLE001
+                # 计划/执行失败不应静默丢弃：记录到 trace，供可观测性面板呈现失败原因
+                result = {"error": f"{type(e).__name__}: {e}"}
+            # 3b. 持久化结构化追踪（规划/执行事件与耗时），前端据此展示执行轨迹
+            if isinstance(result, dict):
+                workspace.save_json({
+                    "goal": goal,
+                    "mode": "llm" if self._use_llm else "local",
+                    "events": traces,
+                    "summary": result.get("trace"),
+                    "duration": result.get("duration", 0.0),
+                    "node_count": (result.get("plan") or {}).get("node_count", 0),
+                    "error": result.get("error"),
+                }, "trace.json")
             # 4. 若未自动生成报告，兜底调一次 report_generate（params 含 goal 与 ws）
             if not workspace.report_md.exists():
                 self.tool_registry.get("report_generate").execute(

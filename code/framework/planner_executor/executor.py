@@ -61,10 +61,20 @@ class ToolRegistry:
             for name, entry in self._tools.items()
         ]
 
+    # -- 统一协议接入（framework.registry） ----------------------------------
+    def register_tool(self, name: str, handler: Any = None, description: str = "", **extra: Any) -> None:
+        """统一注册入口：委托给现有 register(name, tool, description)。"""
+        self.register(name, handler, description)
+
+    def list_names(self) -> List[str]:
+        """列出所有工具名称（协议要求的 list_names）。"""
+        return list(self._tools.keys())
+
     def find_tool(self, task_description: str) -> Optional[str]:
         """根据任务描述查找匹配的工具。
 
-        使用简单的关键词匹配。
+        词级关键词匹配 + 中文二元词（bigram）匹配：中文任务描述无空格
+        分词，纯词级匹配几乎失效，故对含 CJK 的文本追加相邻双字滑窗匹配。
 
         Args:
             task_description: 任务描述。
@@ -76,6 +86,13 @@ class ToolRegistry:
         best_match: Optional[str] = None
         best_score = 0
 
+        def _bigrams(text: str) -> set:
+            """提取 CJK 相邻双字组合，用于中文近似匹配。"""
+            chars = [c for c in text if "\u4e00" <= c <= "\u9fff"]
+            return {chars[i] + chars[i + 1] for i in range(len(chars) - 1)}
+
+        task_bigrams = _bigrams(task_description)
+
         for name, entry in self._tools.items():
             name_lower = name.lower()
             desc_lower_entry = entry["description"].lower()
@@ -84,11 +101,16 @@ class ToolRegistry:
             # 名称匹配
             if name_lower in desc_lower:
                 score += 3
-            # 关键词匹配
+            # 词级关键词匹配
             keywords = set(name_lower.split()) | set(desc_lower_entry.split())
             for kw in keywords:
                 if kw in desc_lower:
                     score += 1
+            # 中文 bigram 匹配：命中越多得分越高
+            entry_bigrams = _bigrams(entry["description"]) | _bigrams(
+                name.replace("_", " "))
+            overlap = len(task_bigrams & entry_bigrams)
+            score += min(overlap, 4)
 
             if score > best_score:
                 best_score = score
@@ -495,7 +517,6 @@ class Executor:
                 tool_name = (message.content or "").strip()
             elif hasattr(client, "chat") and hasattr(client.chat, "completions"):
                 response = client.chat.completions.create(
-                    model="gpt-4",
                     messages=messages,
                     temperature=0.0,
                     max_tokens=50,
@@ -552,7 +573,6 @@ class Executor:
 
         if hasattr(llm_client, "chat") and hasattr(llm_client.chat, "completions"):
             response = llm_client.chat.completions.create(
-                model="gpt-4",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
             )
@@ -777,9 +797,13 @@ class PlannerExecutorAgent:
             "replan_count": replan_count,
         }
 
-    def run_with_trace(self, task_description: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        """运行并返回完整追踪日志。"""
-        result = self.run(task_description)
+    def run_with_trace(self, task_description: str, force_plan: bool = False) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        """运行并返回完整追踪日志。
+
+        force_plan 与 :meth:`run` 语义一致：True 时强制走 LLM 规划，
+        确保可观测性链路能拿到真实的规划/执行事件（而非被简单任务短路）。
+        """
+        result = self.run(task_description, force_plan=force_plan)
         return result, self.trace_logger.get_traces()
 
     # ------------------------------------------------------------------

@@ -48,3 +48,11 @@ Thumbs.db
 csv_agent_memory.db
 csv_agent_workspaces/
 .trae
+
+# 答辩相关文件（不随代码提交）
+*.pptx
+eval_stats.py
+gen_ppt.py
+eval_stats.json
+eval_after.json
+eval_before.json

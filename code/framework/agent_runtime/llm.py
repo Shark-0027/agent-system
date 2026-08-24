@@ -69,7 +69,8 @@ class LLMClient:
         """
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = base_url or os.environ.get("OPENAI_BASE_URL", None)
-        self.model_name = model_name or os.environ.get("MODEL_NAME", "gpt-4")
+        # 模型名不设硬编码默认值：必须来自 .env 的 MODEL_NAME 或调用方显式传入
+        self.model_name = model_name or os.environ.get("MODEL_NAME")
         self.max_retries = max_retries
         self.request_timeout = request_timeout
 

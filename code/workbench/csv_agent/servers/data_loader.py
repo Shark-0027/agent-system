@@ -53,7 +53,7 @@ class DataLoaderServer(MCPServer):
         super().__init__(name="data-loader", description="CSV 加载与概览")
         self.register_tool(
             schema=ToolSchema(name="csv_load",
-                description="加载 CSV，返回行列数、列名、类型、样本、缺失率",
+                description="加载 CSV 数据，给出前几行样例预览，回答有多少行、多少列、列名、类型与缺失率",
                 parameters={"type":"object","properties":{"ws":{"type":"string","description":"工作区根目录"}}}),
             handler=lambda **kw: csv_load(_resolve_ws(kw), kw))
         self.register_tool(

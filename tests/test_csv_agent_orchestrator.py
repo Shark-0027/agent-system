@@ -17,6 +17,11 @@ def test_analyze_produces_report():
     assert out["success"] is True
     assert ws.report_md.exists()
     assert os.path.exists(str(out.get("report")))
+    # 可观测性：分析应产出结构化执行轨迹
+    assert ws.trace_file.exists()
+    trace = ws.load_json("trace.json")
+    assert "events" in trace
+    assert "duration" in trace
 
 
 def test_planner_drives_tool_via_find_tool():

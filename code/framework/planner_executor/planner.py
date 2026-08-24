@@ -360,18 +360,23 @@ class Planner:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": self._build_user_prompt(task_description, context)},
         ]
-        return self._call_llm_raw(messages)
+        return self._call_llm_raw(messages, task=task_description)
 
-    def _call_llm_raw(self, messages: Any) -> str:
+    def _call_llm_raw(self, messages: Any, task: str = "") -> str:
         """底层 LLM 调用。
 
         支持多种 LLM 客户端接口：
         - OpenAI 风格: client.chat.completions.create()
         - Anthropic 风格: client.messages.create()
         - 简单 callable: llm_client(prompt) -> str
+
+        Args:
+            messages: 消息列表或纯文本提示。
+            task: 原始任务描述，LLM 不可用时用于回退计划（避免把整段
+                规划提示词当作子任务描述传给执行器）。
         """
         if self.llm_client is None:
-            return self._fallback_plan(messages)
+            return self._fallback_plan(messages, error="", task=task)
 
         try:
             # 本项目 LLMClient：提供 chat_completion 高层方法，使用其配置的模型/base_url
@@ -385,11 +390,15 @@ class Planner:
             if hasattr(self.llm_client, "chat") and hasattr(
                 self.llm_client.chat, "completions"
             ):
-                response = self.llm_client.chat.completions.create(
-                    model="gpt-4",
-                    messages=messages,
-                    temperature=0.3,
-                )
+                kwargs: Dict[str, Any] = {
+                    "messages": messages,
+                    "temperature": 0.3,
+                }
+                # 模型名从客户端自身配置读取（不写死），未配置则由客户端默认决定
+                client_model = getattr(self.llm_client, "model", None)
+                if client_model:
+                    kwargs["model"] = client_model
+                response = self.llm_client.chat.completions.create(**kwargs)
                 return response.choices[0].message.content
 
             # Anthropic 风格
@@ -398,8 +407,11 @@ class Planner:
             ):
                 system_prompt = messages[0]["content"] if messages[0]["role"] == "system" else ""
                 user_prompt = messages[-1]["content"]
+                client_model = getattr(self.llm_client, "model", None)
+                if not client_model:
+                    raise ValueError("Anthropic client has no model configured")
                 response = self.llm_client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model=client_model,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
                     max_tokens=4096,
@@ -413,39 +425,76 @@ class Planner:
 
         except Exception as e:
             # LLM 调用失败时使用回退策略
-            return self._fallback_plan(messages, error=str(e))
+            return self._fallback_plan(messages, error=str(e), task=task)
 
-        return self._fallback_plan(messages)
+        return self._fallback_plan(messages, task=task)
 
     def _fallback_plan(
         self,
         messages: Any,
         error: str = "",
+        task: str = "",
     ) -> str:
         """当 LLM 不可用时的回退规划策略。
 
-        基于规则生成简单计划。
+        基于规则生成计划：简单任务（单步可答）退化为单任务 DAG；
+        其余任务按标准分析流水线（加载→清洗→特征/可视化→建模→报告）
+        生成链式 DAG，避免单任务选错起点工具导致整个 DAG 卡死。
         """
-        # 提取用户消息
-        if isinstance(messages, list):
-            user_msg = next(
-                (m["content"] for m in reversed(messages) if m.get("role") == "user"),
-                "",
-            )
-        else:
-            user_msg = str(messages)
+        # 优先使用调用方传入的原始任务描述；缺失时从消息中提取用户内容
+        user_msg = task
+        if not user_msg:
+            if isinstance(messages, list):
+                user_msg = next(
+                    (m["content"] for m in reversed(messages) if m.get("role") == "user"),
+                    "",
+                )
+            else:
+                user_msg = str(messages)
 
+        # 单任务只保留给「一句短查询」（行数/样例等）；中长任务即使
+        # 表面简单也可能依赖清洗等前置产物，统一走流水线更可靠
+        if len(user_msg.strip()) < 15:
+            fallback = {
+                "analysis": f"回退规划（LLM 不可用: {error}）" if error else "回退规划",
+                "is_simple": False,
+                "subtasks": [
+                    {
+                        "id": "task_1",
+                        "description": user_msg,
+                        "expected_output": f"完成: {user_msg}",
+                        "dependencies": [],
+                        "priority": 0,
+                    }
+                ],
+            }
+            return json.dumps(fallback, ensure_ascii=False)
+
+        # 标准分析流水线：描述内嵌工具名（名称匹配权重最高，确保本地
+        # 模式下可靠路由），其余文字用于向 LLM/验证器解释步骤意图
+        pipeline = [
+            ("task_1", "csv_load：加载 CSV 数据概览与样例"),
+            ("task_2", "data_clean：检测并处理缺失值，清洗数据"),
+            ("task_3", "feature_engineer：特征工程，对分类列做编码"),
+            ("task_4", "eda_plot：可视化，绘制数值列分布与相关性热力图"),
+            ("task_5", "model_train：训练回归模型并评估销售影响因素"),
+            ("task_6", "report_generate：生成 Markdown 分析报告"),
+        ]
         fallback = {
-            "analysis": f"回退规划（LLM 不可用: {error}）" if error else "回退规划",
+            "analysis": f"回退规划·标准流水线（LLM 不可用: {error}）" if error
+            else "回退规划·标准流水线",
             "is_simple": False,
             "subtasks": [
                 {
-                    "id": "task_1",
-                    "description": user_msg,
-                    "expected_output": f"完成: {user_msg}",
-                    "dependencies": [],
-                    "priority": 0,
+                    "id": tid,
+                    "description": desc,
+                    "expected_output": f"完成: {desc}",
+                    "dependencies": [prev] if prev else [],
+                    "priority": i,
                 }
+                for i, (prev, (tid, desc)) in enumerate(
+                    zip([None] + [p[0] for p in pipeline[:-1]], pipeline)
+                )
             ],
         }
         return json.dumps(fallback, ensure_ascii=False)

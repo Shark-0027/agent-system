@@ -1,279 +1,204 @@
-# 可靠 AI Agent 系统开发
+# AI 数据分析工作台（Agent System）
 
-红岩网校 AI 部门 2026 暑期考核项目
-
-> **公共主线：Agent Runtime** | **选题一：MCP 与工具系统** | **选题三：Planner–Executor 与任务规划**
+基于自研 Agent 框架构建的 **端到端 CSV 数据分析平台**：上传 CSV + 一句话描述分析目标，系统自动完成数据加载、清洗、探索、特征工程、建模/绘图，最终生成一份 Markdown 分析报告。底层由可扩展的 Agent Runtime / MCP 工具系统 / Planner-Executor 规划执行框架驱动。
 
 ---
 
-## 项目概述
+## 特性
 
-本项目实现了一个可靠、可追踪、可扩展的 AI Agent 系统，采用"一条公共主线 + 两个选做方向"的架构：
+- **一句话全流程分析**：LLM 自动规划分析路径，从数据到洞察全程无需手动干预
+- **工作台交互**：分步执行单个工具（概览/清洗/可视化/建模/报告……），可对比“单步执行”与“Planner 自动编排”
+- **自然语言查数**：用中文提问即可实现智能查询、聚合与洞察（NL2Query）
+- **可视化报告**：自动生成图表 + Markdown 报告，支持一键打包 Zip 或单独下载产物
+- **可观测性**：前台实时进度、结构化执行轨迹（`trace.json`）回放
+- **双模式运行**：LLM 智能编排 / 本地规则模式（无 LLM Key 时自动降级）
+- **安全隔离**：每次运行独立工作区，原始数据与清洗数据分开存储
+- **可扩展框架**：统一工具注册协议，工具可在 Runtime / Planner-Executor / MCP 三层无缝接入
 
-- **Agent Runtime**：模型调用、工具系统、Agent Loop、状态管理、异常处理、Trace 追踪、自动评测
-- **MCP 与工具系统**：MCP Client/Server 架构、工具注册发现、Schema 校验、智能工具路由、3 个自定义 MCP Server
-- **Planner–Executor**：任务分解、依赖建模、动态 DAG、并行调度、局部重规划、计划质量验证
+---
+
+## 架构
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     Web 工作台（SPA 三视图）                    │
+│  首页(Home) · 工作台(Workbench) · 全流程分析(Full-Flow)        │
+└───────────────────────────────┬──────────────────────────────┘
+                                │ HTTP /api/*
+┌───────────────────────────────▼──────────────────────────────┐
+│                     CSV Agent 后端（FastAPI）                  │
+│  上传/样例 · 分步工具 · 全流程分析 · 进度/轨迹 · 报告/图表/下载    │
+│  CsvAgent(编排入口) → Workspace(工作区) → MemoryStore(SQLite)    │
+└───────────────────────────────┬──────────────────────────────┘
+                                │
+┌───────────────────────────────▼──────────────────────────────┐
+│                   Agent 框架层（可扩展、可复用）                │
+│  Agent Runtime ── MCP 工具系统 ── Planner-Executor            │
+│  统一工具注册协议（ToolRegistryProtocol） + Trace 追踪 + 评测      │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ## 项目结构
 
 ```
 agent-system/
-├── README.md
-├── pyproject.toml
-├── uv.lock
-├── requirements.txt
-├── .env.example
-├── .gitignore
 ├── code/
-│   ├── __init__.py
-│   ├── framework/              # ══ Agent 系统框架层（通用、可复用）══
-│   │   ├── __init__.py
-│   │   ├── agent_runtime/      # 公共主线：Agent Runtime
-│   │   │   ├── __init__.py
-│   │   │   ├── core.py         # Agent Loop 核心引擎
-│   │   │   ├── llm.py          # LLM 客户端（OpenAI 兼容）
-│   │   │   ├── tools.py        # 工具注册与管理
-│   │   │   ├── state.py        # 状态管理
-│   │   │   ├── session.py      # 会话隔离
-│   │   │   ├── trace.py        # 运行追踪
-│   │   │   └── exceptions.py   # 异常类体系
-│   │   ├── mcp/                # 选题一：MCP 与工具系统
-│   │   │   ├── __init__.py
-│   │   │   ├── client.py       # MCP Client
-│   │   │   ├── server.py       # MCP Server 基类
-│   │   │   ├── registry.py     # 工具注册表
-│   │   │   ├── schema.py       # 工具参数 Schema
-│   │   │   ├── router.py       # 智能工具路由
-│   │   │   └── servers/        # 自定义 MCP Server
-│   │   │       ├── campus_info.py  # 校园信息查询
-│   │   │       ├── repo_analysis.py # 代码仓库分析
-│   │   │       └── doc_search.py   # 文档检索
-│   │   ├── planner_executor/   # 选题三：Planner–Executor
-│   │   │   ├── __init__.py
-│   │   │   ├── planner.py      # 任务规划器
-│   │   │   ├── executor.py     # 执行器 + 顶层调度
-│   │   │   ├── dag.py          # 动态 DAG 任务图
-│   │   │   ├── verifier.py     # 计划质量验证
-│   │   │   └── scheduler.py    # 并行调度器
-│   │   ├── evaluation/         # 评测系统
-│   │   │   ├── __init__.py
-│   │   │   ├── tasks.py        # 20+ 评测任务
-│   │   │   └── metrics.py      # 评价指标
-│   │   └── examples/           # 框架层示例应用
-│   │       ├── campus_assistant.py # 校园智能助手
-│   │       └── research_agent.py   # 深度研究 Agent
-│   └── workbench/              # ══ CSV 数据分析工作台应用层 ══
-│       ├── __init__.py
-│       └── csv_agent/          # CSV 数据分析 Agent（业务应用）
-│           ├── __init__.py
-│           ├── orchestrator.py # CsvAgent 编排入口
-│           ├── bridge.py       # MCP 双注册桥梁
-│           ├── api.py          # FastAPI 工作台后端
-│           ├── cli.py          # 命令行入口
-│           ├── workspace.py    # 工作区数据总线
-│           ├── memory.py       # SQLite 记忆/偏好
-│           ├── datagen.py      # 样例数据生成
-│           ├── eval_csv.py     # CSV 评测与基线对照
-│           ├── sandbox.py      # 执行沙箱
-│           ├── servers/        # 5 个数据分析 MCP Server
-│           │   ├── data_loader.py
-│           │   ├── data_processor.py
-│           │   ├── visualizer.py
-│           │   ├── model_trainer.py
-│           │   └── report_generator.py
-│           └── web/            # 前端工作台（SPA）
-│               ├── index.html
-│               ├── app.css
-│               └── app.js
-└── tests/                      # 测试（同一命令全量运行）
-    ├── test_agent_runtime.py
-    ├── test_mcp.py
-    ├── test_planner_executor.py
-    └── test_csv_agent_*.py
+│   ├── framework/                 # ══ Agent 框架层（通用、可复用）══
+│   │   ├── registry.py            # 统一工具注册协议
+│   │   ├── agent_runtime/         # Agent Loop、LLM 客户端、状态/会话/Trace
+│   │   ├── mcp/                   # MCP Client/Server、工具路由、注册表、3 个示例 Server
+│   │   ├── planner_executor/      # 任务规划、动态 DAG、并行调度、执行器、验证器
+│   │   ├── evaluation/            # 评测系统（任务 + 指标）
+│   │   └── examples/              # 框架层示例应用
+│   └── workbench/
+│       └── csv_agent/             # ══ CSV 数据分析工作台应用层 ══
+│           ├── api.py             # FastAPI 后端（全部 /api 端点）
+│           ├── orchestrator.py    # CsvAgent 编排入口
+│           ├── bridge.py          # 工具双注册（MCP 协议 + Planner-Executor）
+│           ├── workspace.py       # 独立工作区数据总线
+│           ├── sandbox.py         # 子进程隔离执行沙箱
+│           ├── memory.py          # SQLite 记忆/历史
+│           ├── servers/           # 5 个数据分析 MCP Server（数据加载/处理/可视化/建模/报告/统计/查询）
+│           └── web/               # 前端 SPA（index.html / app.css / app.js）
+└── tests/                         # 单测（同一命令全量运行）
 ```
 
 ## 快速开始
 
-### 环境配置
+### 1. 安装依赖
 
 ```bash
-# 克隆仓库
-git clone https://github.com/Shark-0027/agent-system.git
 cd agent-system
+uv sync          # 推荐（也可 pip install -r requirements.txt）
+```
 
-# 使用 uv 安装依赖（推荐）
-uv sync
+### 2. 配置 LLM（可选）
 
-# 或者使用 pip
-pip install -r requirements.txt
-
-# 配置环境变量
+```bash
 cp .env.example .env
-# 编辑 .env 填入你的 API Key
+# 编辑 .env 填入 API Key；未配置时将自动降级为本地规则模式
 ```
 
-### 运行示例
+后端通过 `.env` 读取 `OPENAI_API_KEY / OPENAI_BASE_URL / MODEL_NAME`，**不硬编码任何模型名**。前端「LLM 配置」弹窗也可临时覆盖 key / base_url / model_name，仅存于当前服务进程。
+
+### 3. 启动 Web 工作台
 
 ```bash
-# 校园智能助手
-python code/framework/examples/campus_assistant.py
-
-# 深度研究 Agent
-python code/framework/examples/research_agent.py
+uv run uvicorn code.workbench.csv_agent.api:app --reload --port 8000
 ```
 
-### 运行测试
+浏览器访问 <http://127.0.0.1:8000/>，进入浅色主题三视图界面：
 
-所有测试通过同一命令全量运行：
+| 视图 | 说明 |
+|---|---|
+| **首页 Home** | 产品介绍、上传 CSV / 试用样例 / 进入工作台 |
+| **工作台 Workbench** | 运行列表、数据预览、分步工具、图表、报告、执行轨迹、产物下载 |
+| **全流程分析 Full-Flow** | 上传 CSV + 填写目标 → 一键分析，实时进度轮询与结果回显 |
 
-```bash
-# 运行全部测试（uv）
-uv run pytest -q
-```
-
-## 核心模块
-
-### 1. Agent Runtime（公共主线）
-
-Agent Runtime 是 Agent 系统的运行基础，负责组织模型推理、工具调用、执行结果反馈和任务终止。
-
-**核心能力：**
-- LLM 适配层：支持 OpenAI 兼容 API，含重试和指数退避
-- 工具注册表：参数校验、JSON Schema 支持、描述搜索
-- Agent Loop：ReAct 模式，多轮推理 + 工具调用
-- 状态管理：消息历史、工具调用、Observation 的完整记录
-- 会话隔离：不同 Session 完全独立
-- Trace 追踪：完整运行日志，支持 JSON 导出和回放
-- 异常处理：工具重试/降级、模型重试、非法工具名处理
-
-**创新点：**
-- 重复工具调用检测（连续 3 次相同调用自动终止）
-- 死循环检测（连续 5 步无进展自动终止）
-- 工具调用重试和降级机制
-- Token/步数/时间预算控制
-
-### 2. MCP 与工具系统（选题一）
-
-实现完整的 MCP Client/Server 架构，统一管理工具的注册、发现、选择和调用。
-
-**核心能力：**
-- MCP Client：多 Server 连接管理，统一调用接口
-- MCP Server 基类：工具注册、超时控制、健康检查
-- ToolSchema：完整参数校验、类型检查、枚举约束
-- ToolRegistry：工具发现、元数据管理、搜索
-- ToolRouter：智能工具选择（语义相似度 + 历史成功率）
-
-**自定义 MCP Server：**
-| Server | 工具数 | 功能 |
-|--------|--------|------|
-| campus-info | 5 | 课程搜索、教师查询、教室查询、课表获取、学院列表 |
-| repo-analysis | 5 | 代码结构分析、行数统计、函数搜索、依赖检查、文件列表 |
-| doc-search | 5 | 文档索引、TF-IDF 搜索、文档获取、主题列表、文档摘要 |
-
-**创新点：**
-- 基于任务描述动态选择工具
-- 工具排序（语义相似度 70% + 历史成功率 30%）
-- 分层工具检索（>20 工具时先粗筛再精排）
-- 工具调用成本因子调节
-
-### 3. Planner–Executor（选题三）
-
-将任务规划与具体执行分离，使 Agent 能拆解复杂任务并按依赖关系并行执行。
-
-**核心能力：**
-- Planner：LLM 驱动的任务分解，自动识别并行子任务
-- Executor：子任务执行、失败处理、自动结果验证
-- TaskDAG：动态依赖图，循环检测，拓扑排序
-- PlanVerifier：六维度计划质量评分（0-100）
-- ParallelScheduler：并行调度，三种失败策略
-- 局部重规划：失败时只修改影响的任务
-
-**创新点：**
-- 动态 DAG（执行中可调整依赖）
-- 局部重规划（非全部重来）
-- 计划质量自动评分和修正
-- 按任务复杂度自动决定是否启用规划
-- 历史计划缓存与复用
-
-## 评测系统
-
-包含 20+ 自动评测任务，覆盖 6 大类别：
-
-| 类别 | 任务数 | 覆盖内容 |
-|------|--------|----------|
-| 工具调用 | 5 | 参数校验、错误处理、多工具协作 |
-| Agent Loop | 5 | 单步/多步执行、步数/时间限制 |
-| 异常处理 | 5 | 重试、降级、模型错误、格式错误 |
-| 状态管理 | 3 | 消息记录、会话隔离、序列化 |
-| Trace 追踪 | 2 | 完整记录、事件类型覆盖 |
-| 创新点 | 3 | 重复检测、死循环检测、退避机制 |
-
-## 技术栈
-
-- **语言**：Python 3.10+
-- **LLM**：OpenAI 兼容 API（GPT-4o / DeepSeek 等）
-- **依赖**：openai, jsonschema, pydantic, python-dotenv
-
-## 许可证
-
-本项目仅用于红岩网校 AI 部门考核目的。
-
-## CSV 数据分析 Agent（选题扩展应用）
-
-在 Agent Runtime / MCP / Planner–Executor 之上实现的一个端到端 CSV 数据分析 Agent：上传 CSV + 自然语言分析目标 → 自动完成「加载 → 清洗 → 探索 → 特征工程 → 建模/绘图 → 生成 Markdown 报告」。
-
-**分层结构：**
-- `code/workbench/csv_agent/workspace.py`：每次分析独立工作区（`input.csv` / `cleaned.csv` / `charts/` / `report.md`）
-- `code/workbench/csv_agent/sandbox.py`：子进程隔离 + 超时的安全执行沙箱
-- `code/workbench/csv_agent/servers/`：5 个 MCP Server，8 个工具（data-loader / data-processor / visualizer / model-trainer / report-generator）
-- `code/workbench/csv_agent/memory.py`：SQLite 记忆（偏好 + 历史分析）
-- `code/workbench/csv_agent/bridge.py`：MCP 工具双注册——既走 MCP 协议又注入 Planner-Executor 的 ToolRegistry
-- `code/workbench/csv_agent/orchestrator.py`：`CsvAgent` 编排入口（设 WorkspaceContext → Planner-Executor 执行目标 → 兜底生成报告）
-- `code/workbench/csv_agent/eval_csv.py`：20 个 4 难度任务的自动评测 + Planner-Executor vs 简单 Agent Loop 基线对照
-
-### CLI 用法
+### 4. CLI 用法（无前端）
 
 ```bash
-# 生成样例数据
 uv run python -m code.workbench.csv_agent.cli sample /tmp/s.csv
-
-# 分析（未配置 LLM 时加 --no-llm 走本地模式）
 uv run python -m code.workbench.csv_agent.cli analyze /tmp/s.csv "分析销售额影响因素并生成报告" --no-llm
 ```
 
-### API 启动
+### 5. 运行测试
 
 ```bash
-uv run uvicorn code.workbench.csv_agent.api:app --reload
-# POST /api/analyze  (multipart: goal + file)  →  {success, run_id, report, error}
-# GET  /api/report/{run_id}                    →  Markdown 报告内容
-# GET  /api/health                             →  {"status": "ok", "mode": "llm"|"local"}
-```
-
-### 交互式工作台
-
-在 API 基础上提供单页交互式工作台（服务启动后访问 `http://127.0.0.1:8000/`，前端位于 `code/workbench/csv_agent/web/`）。前端把底层能力拆成一组按钮，覆盖上传/生成样例、分步执行单个分析工具、产物查看与下载、历史记录：
-
-| 分区 | 前端按钮 | 后端端点 |
-|---|---|---|
-| 数据接入 | 上传 CSV / 生成样例 | `POST /api/run` / `GET /api/sample` |
-| 一键分析 | 开始全流程分析 | `POST /api/analyze` |
-| 分步工具 | 加载/概览/清洗/特征/可视化/模型建议/模型训练/生成报告 | `POST /api/run/{rid}/tool` |
-| 运行管理 | 运行下拉、刷新 | `GET /api/runs` / `GET /api/run/{rid}/info` |
-| 结果查看 | 数据表 / 图表 / 报告 | `GET /api/run/{rid}/data`、`/charts`、`/chart`、`/api/report/{rid}` |
-| 下载 | 报告 / cleaned / input | `GET /api/run/{rid}/download?name=` |
-| 历史与偏好 | 历史记录、偏好设置 | `GET /api/history`、`GET/PUT /api/preferences` |
-
-分步按钮与一键分析共用同一套 MCP 工具与工作区产物，便于对比“单步执行”与“Planner 自动编排”的效果。
-
-### 评测命令
-
-```python
-from code.csv_agent.eval_csv import run_csv_eval, run_comparison
-report = run_csv_eval()          # 20 任务，返回 EvalReport（total/passed/pass_rate）
-rows   = run_comparison(runs=3)  # Planner-Executor vs Agent Loop 基线对照
+uv run pytest -q
 ```
 
 ---
 
-**参考项目**：[datawhalechina/hello-agents](https://github.com/datawhalechina/hello-agents) — 从零开始构建智能体
+## 后端 API
+
+启动后接口前缀为 `http://<host>:8000`。
+
+### 系统与 LLM 配置
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/health` | 服务状态与运行模式 `{status, mode: llm\|local, mode_label}` |
+| GET | `/api/llm/config` | 读取当前 LLM 配置（不回显 api_key） |
+| POST | `/api/llm/config` | 设置/清除前端 LLM 覆盖（api_key/base_url/model_name 白名单） |
+
+### 数据接入与运行管理
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/run` | 上传 CSV 新建运行（multipart `file`），返回数据表预览 |
+| GET | `/api/sample` | 生成样例销量数据并新建运行 |
+| GET | `/api/runs` | 列出全部运行（title / created_at / mode / 产物标记） |
+| GET | `/api/run/{rid}/info` | 单运行详情（行数列数 / schema / 产物标记） |
+| GET | `/api/run/{rid}/data?which=` | 数据预览，`which=auto\|input\|cleaned` 指定数据版本 |
+
+### 分析与工具
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/tools` | 列出可用分析工具 |
+| POST | `/api/run/{rid}/tool` | 在当前运行上执行单个工具 |
+| POST | `/api/run/{rid}/analyze` | 全流程异步分析（`async_mode=true` 后台执行） |
+| GET | `/api/run/{rid}/progress` | 查询异步分析实时进度 |
+| GET | `/api/run/{rid}/trace` | 返回结构化执行轨迹（规划/调度/工具事件与耗时） |
+| GET | `/api/run/{rid}/llm-mode` | 单次运行实际采用的 LLM 模式 |
+| POST | `/api/analyze` | 上传并立即分析（一次性合并端点，multipart `goal`+`file`） |
+
+### 结果查看与下载
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/report/{run_id}` | 返回 Markdown 报告文本 |
+| GET | `/api/run/{rid}/charts` | 列出图表 |
+| GET | `/api/run/{rid}/chart?name=` | 读取单张图表 PNG |
+| GET | `/api/run/{rid}/download?name=` | 下载工作区产物（report.md / cleaned.csv / input.csv 等） |
+| GET | `/api/run/{rid}/bundle` | 打包全部产物为 Zip |
+| GET | `/api/history` | 历史分析记录（支持 keyword 检索） |
+
+---
+
+## 可用分析工具
+
+| 工具 | 说明 |
+|---|---|
+| `csv_load` / `data_summary` | 数据加载 / 数据概览 |
+| `data_quality` / `data_clean` | 数据质量体检 / 数据清洗 |
+| `feature_engineer` | 特征工程 |
+| `eda_plot` | 可视化出图 |
+| `corr_analysis` / `hypo_test` / `regression_fit` / `time_series_feat` / `cluster_profile` / `anomaly_detect` / `dist_fit` / `pca_decompose` | 统计分析（相关性/假设检验/回归/时序/聚类/离群点/分布拟合/主成分） |
+| `model_suggest` / `model_train` / `model_classify` | 建模建议 / 模型训练 / 模型分类 |
+| `nl_filter` / `nl_agg` / `nl_insight` | 自然语言查数 / 分组聚合 / 智能洞察 |
+| `report_generate` | 生成 Markdown 报告 |
+
+---
+
+## 框架层能力
+
+### Agent Runtime（公共主线）
+LLM 适配（重试 + 指数退避）、工具注册表、ReAct Agent Loop、状态/会话隔离、Trace 追踪、异常处理降级，以及重复调用检测、死循环检测、预算控制等创新机制。
+
+### MCP 与工具系统
+MCP Client/Server 架构、ToolSchema 校验、ToolRegistry 发现、智能工具路由（语义相似度 + 历史成功率）；内置 `campus-info` / `repo-analysis` / `doc-search` 三个示例 Server。
+
+### Planner–Executor
+LLM 驱动的任务分解、动态 DAG、并行调度（三种失败策略）、局部重规划、六维计划质量评分、历史计划缓存复用。
+
+### 统一工具注册协议
+`ToolRegistryProtocol` 定义了 `register_tool / get / list_names / find_tool` 标准接口，`create_registry(kind)` 工厂动态实例化协议兼容的注册表，使 Runtime / Planner-Executor / MCP 三层的工具接入保持一致、可扩展。
+
+---
+
+## 技术栈
+
+- **语言**：Python 3.10+
+- **框架**：FastAPI · Agent Runtime · MCP · Planner-Executor
+- **前端**：原生 HTML / CSS / JS 单页应用（Design Token 驱动，浅色主题）
+- **数据**：pandas · numpy · scikit-learn · matplotlib
+- **依赖管理**：uv
+
+## 环境变量
+
+| 变量 | 说明 |
+|---|---|
+| `OPENAI_API_KEY` | LLM API Key |
+| `OPENAI_BASE_URL` | LLM API Base URL |
+| `MODEL_NAME` | LLM 模型名（由 `.env` 提供，不硬编码） |
+| `MCP_SERVER_TIMEOUT` / `MCP_MAX_RETRIES` | MCP 超时/重试 |
+| `AGENT_MAX_STEPS` / `AGENT_MAX_TIME_SECONDS` / `AGENT_ENABLE_TRACE` | Agent 运行预算 |
+| `PLANNER_MAX_SUBTASKS` / `EXECUTOR_MAX_WORKERS` | 规划/调度配置 |

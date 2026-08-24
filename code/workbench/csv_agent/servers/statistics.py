@@ -174,7 +174,7 @@ def time_series_feat(ws, params):
             ts = None
         if ts is not None:
             series = pd.Series(pd.to_numeric(df[val_col], errors="coerce").values, index=ts)
-            series = series.sort_index().fillna(method="ffill").dropna()
+            series = series.sort_index().ffill().dropna()
             if len(series) >= 4:
                 trend_end = series.iloc[-1] - series.iloc[0]
                 mean = series.mean()
@@ -304,6 +304,8 @@ def dist_fit(ws, params):
                 best = entry
         except Exception:  # noqa: BLE001 某些分布拟合失败时跳过
             continue
+    if not results:
+        return {"success": False, "error": "no distribution could be fitted"}
     results.sort(key=lambda r: r["p_value"], reverse=True)
     fig, ax = plt.subplots(figsize=(7, 4))
     n, bins, _ = ax.hist(v, bins=30, density=True, alpha=0.6, color="#4c8bf5", edgecolor="white")

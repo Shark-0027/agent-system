@@ -200,6 +200,14 @@ class MCPServer(ABC):
         wrapper = self._tools.get(tool_name)
         return wrapper.schema if wrapper else None
 
+    def get_tool_handler(self, tool_name: str) -> Optional[Callable[..., Any]]:
+        """获取指定工具的底层处理函数（未注册时返回 None）。
+
+        供 Bridge 等需要直接绑定可调用 handler 的场景使用，避免访问私有 _tools。
+        """
+        wrapper = self._tools.get(tool_name)
+        return wrapper.handler if wrapper else None
+
     # -- 工具调用 --------------------------------------------------------------
 
     def call_tool(self, tool_name: str, **kwargs: Any) -> Dict[str, Any]:

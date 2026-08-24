@@ -23,6 +23,8 @@ class Workspace:
     def charts_dir(self): return self.root / "charts"
     @property
     def report_md(self): return self.root / "report.md"
+    @property
+    def trace_file(self): return self.root / "trace.json"
     def save_csv(self, df, name="input.csv"):
         path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,13 +45,22 @@ class Workspace:
         return {"workspace": str(self.root), "params": params or {}}
 
 class WorkspaceContext:
+    """进程级当前工作区上下文。
+
+    注意：PlannerExecutor 的 Scheduler 会在工作线程中执行工具，因此该上下文
+    必须跨线程可见，不能使用 thread-local。并发隔离由调用方显式传 params['ws']
+    保证（bridge.make_fn 优先用 params['ws']/workspace 解析，context 仅为兜底）。
+    """
     _current = None
+
     @classmethod
     def push(cls, ws):
         cls._current = ws
+
     @classmethod
     def pop(cls):
         cls._current = None
+
     @classmethod
     def current(cls):
         return cls._current
