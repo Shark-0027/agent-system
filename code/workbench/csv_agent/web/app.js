@@ -8,6 +8,8 @@
     runs: [],
     tools: [],
     wbTab: "data",
+    // 最近一次工具执行结果（工作台「工具结果」页展示）
+    toolResult: null,
     sidebarSection: "runs",
     flowRunId: "",
     flowTab: "report",
@@ -365,10 +367,63 @@
     }
     if (state.wbTab === "data") loadData();
     else if (state.wbTab === "tools") renderToolsTab();
+    else if (state.wbTab === "tool-result") renderToolResult();
     else if (state.wbTab === "charts") loadCharts();
     else if (state.wbTab === "report") loadReport();
     else if (state.wbTab === "trace") loadTrace();
     else if (state.wbTab === "download") renderDownloads();
+  }
+
+  // 通用渲染：把对象数组渲染成表格
+  function objTable(list) {
+    if (!Array.isArray(list) || !list.length) return "";
+    const cols = Object.keys(list[0] || {});
+    if (!cols.length) return "";
+    let h = `<div class="table-wrap"><table class="data"><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>`;
+    list.forEach((row) => {
+      h += "<tr>" + cols.map((c) => {
+        const cell = row[c];
+        return `<td>${esc(typeof cell === "object" ? JSON.stringify(cell) : String(cell ?? ""))}</td>`;
+      }).join("") + "</tr>";
+    });
+    return h + "</tbody></table></div>";
+  }
+
+  // 展示最近一次工具执行结果（分布拟合/相关/异常等返回真实数值结果，而非数据预览）
+  function renderToolResult() {
+    const box = $("#wbContent");
+    const tr = state.toolResult;
+    if (!tr || !tr.data) {
+      box.innerHTML = '<div class="empty"><div class="icon">▧</div><p>暂无工具执行结果，请先在「分步工具」中执行一个分析</p></div>';
+      return;
+    }
+    const { tool, data } = tr;
+    const label = TOOL_LABEL[tool] || tool;
+    const metaKeys = ["success", "tool", "meta_file", "chart"];
+    let html = `<div class="panel-card"><h3>工具结果 · ${esc(label)}</h3>`;
+    if (data.chart) {
+      html += `<figure class="chart-card chart-single"><img src="/api/run/${state.runId}/chart/${encodeURIComponent(data.chart)}" alt="${esc(data.chart)}"><figcaption>${esc(data.chart)}</figcaption></figure>`;
+    }
+    // 数组字段（如 results）渲染成表格
+    Object.entries(data).forEach(([k, v]) => {
+      if (metaKeys.includes(k)) return;
+      if (Array.isArray(v) && v.length && typeof v[0] === "object" && v[0] !== null) {
+        html += `<h4 class="kv-title">${esc(k)}</h4>` + objTable(v);
+      }
+    });
+    // 其余标量字段渲染成键值对
+    const kv = Object.entries(data).filter(([k, v]) => !metaKeys.includes(k) && !(Array.isArray(v) && v.length && typeof v[0] === "object" && v[0] !== null));
+    if (kv.length) {
+      html += '<div class="kv-list">' + kv.map(([k, v]) => {
+        let inner;
+        if (Array.isArray(v)) inner = `<code>${esc(v.map((x) => typeof x === "object" ? JSON.stringify(x) : String(x)).join(", "))}</code>`;
+        else if (v && typeof v === "object") inner = `<pre>${esc(JSON.stringify(v, null, 2))}</pre>`;
+        else inner = `<code>${esc(String(v))}</code>`;
+        return `<div class="kv-item"><span class="k">${esc(k)}</span><span class="v">${inner}</span></div>`;
+      }).join("") + '</div>';
+    }
+    html += '</div>';
+    box.innerHTML = html;
   }
 
   async function loadRunInfoShort() {
@@ -534,6 +589,9 @@
     </div></div>`;
   }
 
+  // 会修改数据文件、需要立即回看数据的工具（执行后仍跳数据预览）
+  const DATA_MUTATORS = ["data_clean", "feature_engineer"];
+
   async function runTool(name, btn) {
     if (!state.runId) { toast("请先选择运行", true); return; }
     const params = {};
@@ -550,9 +608,15 @@
         body: JSON.stringify({ tool: name, params }),
       });
       toast(r.success ? "执行完成" : "执行失败", !r.success);
-      await Promise.all([loadRuns(), loadData(), loadCharts(), loadReport()]);
-      state.wbTab = "data";
-      $$("#wbTabs .toolbar-tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === "data"));
+      // 侧边栏运行状态后台刷新（只写侧边栏，不覆盖主内容区）
+      // 注意：不在此处调用 loadData/loadCharts/loadReport，它们会异步覆盖主内容，
+      // 与下方工具结果渲染产生竞态；对应 tab 均为懒加载，切过去时自动刷新。
+      loadRuns().catch(() => {});
+      // 展示工具执行结果：清洗类回数据预览，其余展示真实结果
+      const target = (r.success && !DATA_MUTATORS.includes(name)) ? "tool-result" : "data";
+      if (r.success) state.toolResult = { tool: name, data: r };
+      state.wbTab = target;
+      $$("#wbTabs .toolbar-tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === target));
       renderWorkbenchContent();
     } catch (e) { toast(e.message, true); }
     finally { btn?.classList.remove("running"); }

@@ -168,6 +168,17 @@ def _preview(root: Path, path: Optional[Path] = None) -> Dict[str, Any]:
 _WEB_DIR = Path(__file__).parent / "web"
 
 
+@app.middleware("http")
+async def _no_cache_web(request, call_next):
+    """前端页面与静态资源禁用缓存，避免浏览器加载旧版 js/css 导致功能不一致。"""
+    resp = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/web"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.get("/", response_class=FileResponse)
 def index():
     return _WEB_DIR / "index.html"

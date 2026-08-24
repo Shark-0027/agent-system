@@ -370,8 +370,9 @@ class StatisticsServer(MCPServer):
         for name, desc, props in t:
             prop_schema = {"type": "object",
                            "properties": {p: {"type": "string"} for p in props}}
-            handler = globals()[name]
+            # 用默认参数立即绑定当前迭代的函数，避免循环闭包把全部工具绑定到最后一个函数
+            fn = globals()[name]
             self.register_tool(
                 schema=ToolSchema(name=name, description=desc, parameters=prop_schema),
-                handler=lambda **kw: globals()[name](_resolve_ws(kw), kw),
+                handler=lambda fn=fn, **kw: fn(_resolve_ws(kw), kw),
             )
