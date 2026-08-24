@@ -49,6 +49,9 @@ csv_agent_memory.db
 csv_agent_workspaces/
 .trae
 
+# 测试目录仅保留本地，不上传远端
+tests/
+
 # 答辩相关文件（不随代码提交）
 *.pptx
 eval_stats.py
