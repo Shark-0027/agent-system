@@ -43,7 +43,8 @@ class CsvAgent:
             # 3. 交给 PlannerExecutorAgent 执行目标（工具会访问 WorkspaceContext/params）
             result: Any = None
             try:
-                result = self.agent.run(goal)
+                # force_plan=True：全流程分析强制走 LLM 规划，避免短目标被当作简单任务跳过
+                result = self.agent.run(goal, force_plan=True)
             except Exception:  # noqa: BLE001
                 result = {}
             # 4. 若未自动生成报告，兜底调一次 report_generate（params 含 goal 与 ws）

@@ -195,8 +195,18 @@ class LLMClient:
                         **request_params
                     )
 
+                if not response.choices:
+                    last_error = ValueError("Model returned empty choices (choices is None/empty)")
+                    logger.error("Chat completion returned empty choices: %r", response.choices)
+                    continue
+
                 choice = response.choices[0]
                 message = choice.message
+
+                if message is None:
+                    last_error = ValueError("Model returned empty choice (choices[0].message is None)")
+                    logger.error("Chat completion returned empty message (choices=%r)", response.choices)
+                    continue
 
                 logger.debug(
                     "Chat completion succeeded: finish_reason=%s, "

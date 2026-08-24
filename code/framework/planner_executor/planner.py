@@ -142,6 +142,7 @@ class Planner:
         task_description: str,
         context: Optional[Dict[str, Any]] = None,
         force_replan: bool = False,
+        force_plan: bool = False,
     ) -> TaskDAG:
         """将任务描述分解为 TaskDAG。
 
@@ -153,12 +154,12 @@ class Planner:
         Returns:
             包含子任务和依赖关系的 TaskDAG 对象。
         """
-        # 1. 检查是否简单任务
-        if self._is_simple_task(task_description):
+        # 1. 检查是否简单任务（force_plan 时强制走 LLM 规划，不做快捷路径）
+        if not force_plan and self._is_simple_task(task_description):
             return self._build_simple_dag(task_description)
 
-        # 2. 检查历史计划
-        if not force_replan and self.enable_history:
+        # 2. 检查历史计划（force_plan 时强制生成新计划）
+        if not force_plan and not force_replan and self.enable_history:
             cached = self._lookup_history(task_description)
             if cached is not None:
                 return cached.clone()
@@ -373,6 +374,13 @@ class Planner:
             return self._fallback_plan(messages)
 
         try:
+            # 本项目 LLMClient：提供 chat_completion 高层方法，使用其配置的模型/base_url
+            if hasattr(self.llm_client, "chat_completion"):
+                message = self.llm_client.chat_completion(
+                    messages, temperature=0.3
+                )
+                return message.content or ""
+
             # OpenAI 风格
             if hasattr(self.llm_client, "chat") and hasattr(
                 self.llm_client.chat, "completions"

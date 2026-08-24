@@ -469,20 +469,30 @@ class Executor:
             )
             + "\n\n请选择最适合的工具名称，只返回工具名称，不要其他内容。"
         )
+        messages = [{"role": "user", "content": prompt}]
 
         try:
-            if hasattr(self.llm_client, "chat") and hasattr(
+            # 本项目 LLMClient：提供 chat_completion 高层方法，使用其配置的模型/base_url
+            if hasattr(self.llm_client, "chat_completion"):
+                message = self.llm_client.chat_completion(
+                    messages, temperature=0.0, max_tokens=50
+                )
+                tool_name = (message.content or "").strip()
+            elif hasattr(self.llm_client, "chat") and hasattr(
                 self.llm_client.chat, "completions"
             ):
                 response = self.llm_client.chat.completions.create(
                     model="gpt-4",
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     temperature=0.0,
                     max_tokens=50,
                 )
                 tool_name = response.choices[0].message.content.strip()
-                if tool_name in {t["name"] for t in tools_list}:
-                    return tool_name
+            else:
+                return None
+
+            if tool_name in {t["name"] for t in tools_list}:
+                return tool_name
         except Exception:
             pass
 
@@ -656,7 +666,7 @@ class PlannerExecutorAgent:
     # 核心接口
     # ------------------------------------------------------------------
 
-    def run(self, task_description: str) -> Dict[str, Any]:
+    def run(self, task_description: str, force_plan: bool = False) -> Dict[str, Any]:
         """运行完整的 Planner-Executor 流程。
 
         1. Planner 分解任务 -> 生成 TaskDAG
@@ -689,7 +699,7 @@ class PlannerExecutorAgent:
         else:
             # 2. Planner 分解任务
             self.trace_logger.log("planning_start")
-            plan_dag = self._plan_with_verification(task_description)
+            plan_dag = self._plan_with_verification(task_description, force_plan=force_plan)
             self.trace_logger.log("planning_complete", {
                 "node_count": plan_dag.node_count,
                 "edge_count": plan_dag.edge_count,
@@ -809,11 +819,11 @@ class PlannerExecutorAgent:
     # 内部方法
     # ------------------------------------------------------------------
 
-    def _plan_with_verification(self, task_description: str) -> TaskDAG:
+    def _plan_with_verification(self, task_description: str, force_plan: bool = False) -> TaskDAG:
         """规划并验证，不通过则重新规划。"""
         max_attempts = 3
         for attempt in range(max_attempts):
-            plan_dag = self.planner.plan(task_description)
+            plan_dag = self.planner.plan(task_description, force_plan=force_plan)
 
             # 验证
             verification = self.verifier.verify(plan_dag)
