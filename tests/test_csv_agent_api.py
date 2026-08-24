@@ -6,8 +6,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient
 
-from code.csv_agent.api import app
-from code.csv_agent.datagen import gen_sales
+from code.workbench.csv_agent.api import app
+from code.workbench.csv_agent.datagen import gen_sales
 
 
 def test_health():

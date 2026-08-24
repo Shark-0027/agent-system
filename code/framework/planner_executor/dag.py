@@ -321,6 +321,12 @@ class TaskDAG:
         """返回所有失败的任务。"""
         return [n for n in self._nodes.values() if n.status == TaskStatus.FAILED]
 
+    def has_pending(self) -> bool:
+        """是否存在尚未执行的 pending 任务。"""
+        return any(
+            n.status == TaskStatus.PENDING for n in self._nodes.values()
+        )
+
     def get_downstream_tasks(self, task_id: str) -> List[TaskNode]:
         """返回指定任务的所有下游任务（直接和间接依赖）。"""
         self._validate_node_exists(task_id)

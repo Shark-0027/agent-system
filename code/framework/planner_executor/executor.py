@@ -289,12 +289,12 @@ class Executor:
             elif client is not None:
                 result = self._execute_with_llm(task_node, client)
             else:
-                # 无工具无 LLM，返回空结果
-                result = {
-                    "status": "completed",
-                    "output": f"Task '{task_node.description}' completed (no tool available).",
-                    "task_id": task_node.task_id,
-                }
+                # 无匹配工具且无 LLM：不应静默标记为完成，否则"假成功"污染
+                # 成功率和最终报告。改为返回带错误标记的结果，交由 verify_result 判别。
+                raise ValueError(
+                    f"No tool matched for task '{task_node.description}' and no LLM "
+                    "fallback available."
+                )
 
             # 3. 验证结果
             verified = self.verify_result(task_node, result)

@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from code.csv_agent.memory import MemoryStore
+from code.workbench.csv_agent.memory import MemoryStore
 
 def test_preference_roundtrip():
     m = MemoryStore(":memory:")

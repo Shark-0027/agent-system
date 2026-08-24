@@ -226,6 +226,7 @@ class MCPClient:
         self,
         server_name: str,
         tool_name: str,
+        user_level: Optional[PermissionLevel] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """调用远程工具。
@@ -233,6 +234,9 @@ class MCPClient:
         Args:
             server_name: Server 名称。
             tool_name: 工具名称。
+            user_level: 调用方权限等级，默认 READ。当启用权限检查（
+                require_permission）且设置了工具所需权限时，若用户等级低于
+                工具要求则调用被拒绝。用于支持多身份/真实用户权限体系。
             **kwargs: 工具参数。
 
         Returns:
@@ -264,22 +268,24 @@ class MCPClient:
             perm_key = f"{server_name}:{tool_name}"
             required_level = self._permissions.get(perm_key)
             if required_level is not None:
-                # 默认当前用户权限为 READ，实际可扩展
-                current_level = PermissionLevel.READ
-                if current_level < required_level:
+                # 默认当前用户权限为 READ（兼容旧行为），调用方可显式传入真实等级
+                current = user_level or PermissionLevel.READ
+                if current < required_level:
                     record = TraceRecord(
                         trace_id=trace_id,
                         server_name=server_name,
                         tool_name=tool_name,
                         params=kwargs,
                         success=False,
-                        error=f"Permission denied: requires {required_level.value}",
+                        error=f"Permission denied: requires {required_level.value}"
+                        f", user level {current.value}",
                     )
                     self._record_trace(record)
                     return {
                         "success": False,
                         "result": None,
-                        "error": f"Permission denied: requires {required_level.value}",
+                        "error": f"Permission denied: requires {required_level.value}"
+                        f", user level {current.value}",
                         "trace_id": trace_id,
                     }
 

@@ -7,11 +7,32 @@ from typing import Any, Dict
 os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "mplconfig"))
 import matplotlib
 matplotlib.use("Agg")
+from matplotlib import font_manager
 import matplotlib.pyplot as plt
 import pandas as pd
-from code.mcp import MCPServer, ToolSchema
-from code.csv_agent.servers.data_loader import _resolve_ws
-from code.csv_agent.workspace import Workspace
+
+
+def _setup_cjk_font() -> None:
+    """优先选用系统中文字体，避免图表标题/坐标轴中文乱码。"""
+    candidates = ["Microsoft YaHei", "SimHei", "SimSun", "PingFang SC",
+                  "Noto Sans CJK SC", "WenQuanYi Zen Hei", "AR PL UMing CN"]
+    installed = {f.name for f in font_manager.fontManager.ttflist}
+    for name in candidates:
+        if name in installed:
+            plt.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
+            break
+    else:
+        # 未发现中文字体：提示而非报错，缺字时回退默认字体
+        import logging
+        logging.getLogger("csv_agent.visualizer").warning(
+            "未找到中文字体，图表中文可能显示为方框。可安装 Noto Sans CJK 等字体。")
+
+
+_setup_cjk_font()
+plt.rcParams["axes.unicode_minus"] = False  # 负号正常显示
+from code.framework.mcp import MCPServer, ToolSchema
+from code.workbench.csv_agent.servers.data_loader import _resolve_ws
+from code.workbench.csv_agent.workspace import Workspace
 
 def _hist_for(df, col, path):
     fig, ax = plt.subplots(figsize=(6, 4))

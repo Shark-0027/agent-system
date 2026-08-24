@@ -8,12 +8,12 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from code.mcp.schema import ToolSchema, ParameterValidationError
-from code.mcp.server import MCPServer
-from code.mcp.client import MCPClient
-from code.mcp.registry import ToolRegistry
-from code.mcp.router import ToolRouter, SelectionResult
-from code.mcp.servers import CampusInfoServer, RepoAnalysisServer, DocSearchServer
+from code.framework.mcp.schema import ToolSchema, ParameterValidationError
+from code.framework.mcp.server import MCPServer
+from code.framework.mcp.client import MCPClient
+from code.framework.mcp.registry import ToolRegistry
+from code.framework.mcp.router import ToolRouter, SelectionResult
+from code.framework.mcp.servers import CampusInfoServer, RepoAnalysisServer, DocSearchServer
 
 
 class TestToolSchema(unittest.TestCase):

@@ -6,9 +6,9 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from code.mcp import MCPServer, ToolSchema
-from code.csv_agent.servers.data_loader import _resolve_ws
-from code.csv_agent.workspace import Workspace
+from code.framework.mcp import MCPServer, ToolSchema
+from code.workbench.csv_agent.servers.data_loader import _resolve_ws
+from code.workbench.csv_agent.workspace import Workspace
 
 def _target_col(df, target):
     if target and target in df.columns:

@@ -4,10 +4,10 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List
 
-from code.csv_agent.datagen import gen_sales
-from code.csv_agent.orchestrator import CsvAgent
-from code.csv_agent.workspace import Workspace
-from code.evaluation.metrics import EvalResult, EvalReport, EvaluationMetrics
+from code.workbench.csv_agent.datagen import gen_sales
+from code.workbench.csv_agent.orchestrator import CsvAgent
+from code.workbench.csv_agent.workspace import Workspace
+from code.framework.evaluation.metrics import EvalResult, EvalReport, EvaluationMetrics
 
 
 def build_csv_tasks() -> List[Dict[str, Any]]:
@@ -99,10 +99,10 @@ def _run_simple_loop(goal: str) -> bool:
     ws = Workspace.create()
     ws.save_csv(gen_sales(n=40, dirty=True), "input.csv")
     agent = CsvAgent(use_llm=False)
-    from code.csv_agent.servers.data_processor import data_clean, feature_engineer
-    from code.csv_agent.servers.visualizer import eda_plot
-    from code.csv_agent.servers.model_trainer import model_train, model_suggest
-    from code.csv_agent.servers.report_generator import report_generate
+    from code.workbench.csv_agent.servers.data_processor import data_clean, feature_engineer
+    from code.workbench.csv_agent.servers.visualizer import eda_plot
+    from code.workbench.csv_agent.servers.model_trainer import model_train, model_suggest
+    from code.workbench.csv_agent.servers.report_generator import report_generate
     steps = [
         ("csv_load", {"ws": str(ws.root)}),
         ("data_summary", {"ws": str(ws.root)}),

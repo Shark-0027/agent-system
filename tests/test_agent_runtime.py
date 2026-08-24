@@ -10,15 +10,15 @@ import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from code.agent_runtime.exceptions import (
+from code.framework.agent_runtime.exceptions import (
     AgentException, ToolNotFoundException, ToolExecutionException,
     InvalidToolParameterException, ModelCallException,
     MaxStepsExceededException, TimeoutException, SessionNotFoundException,
 )
-from code.agent_runtime.tools import Tool, ToolRegistry
-from code.agent_runtime.state import StateManager
-from code.agent_runtime.session import SessionManager
-from code.agent_runtime.trace import TraceLogger
+from code.framework.agent_runtime.tools import Tool, ToolRegistry
+from code.framework.agent_runtime.state import StateManager
+from code.framework.agent_runtime.session import SessionManager
+from code.framework.agent_runtime.trace import TraceLogger
 
 
 class TestExceptions(unittest.TestCase):

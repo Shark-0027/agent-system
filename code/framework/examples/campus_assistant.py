@@ -12,15 +12,15 @@ import os
 import sys
 import logging
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from code.agent_runtime import (
+from code.framework.agent_runtime import (
     AgentRuntime, LLMClient, ToolRegistry, Tool,
     StateManager, SessionManager, TraceLogger,
 )
-from code.mcp import MCPClient, ToolRouter, ToolSchema
-from code.mcp.servers import CampusInfoServer, RepoAnalysisServer, DocSearchServer
-from code.planner_executor import PlannerExecutorAgent, Planner, Executor, TaskDAG
+from code.framework.mcp import MCPClient, ToolRouter, ToolSchema
+from code.framework.mcp.servers import CampusInfoServer, RepoAnalysisServer, DocSearchServer
+from code.framework.planner_executor import PlannerExecutorAgent, Planner, Executor, TaskDAG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

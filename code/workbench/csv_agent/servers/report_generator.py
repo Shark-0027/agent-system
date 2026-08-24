@@ -1,9 +1,9 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict
-from code.mcp import MCPServer, ToolSchema
-from code.csv_agent.servers.data_loader import _resolve_ws
-from code.csv_agent.workspace import Workspace
+from code.framework.mcp import MCPServer, ToolSchema
+from code.workbench.csv_agent.servers.data_loader import _resolve_ws
+from code.workbench.csv_agent.workspace import Workspace
 
 def report_generate(ws, params):
     goal = params.get("goal", "数据分析")

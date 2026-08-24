@@ -1,12 +1,12 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from code.csv_agent.orchestrator import CsvAgent
-from code.csv_agent.bridge import build_tool_registry
-from code.csv_agent.datagen import gen_sales
-from code.csv_agent.workspace import Workspace, WorkspaceContext
-from code.agent_runtime import SessionManager, TraceLogger
-from code.planner_executor import PlannerExecutorAgent
+from code.workbench.csv_agent.orchestrator import CsvAgent
+from code.workbench.csv_agent.bridge import build_tool_registry
+from code.workbench.csv_agent.datagen import gen_sales
+from code.workbench.csv_agent.workspace import Workspace, WorkspaceContext
+from code.framework.agent_runtime import SessionManager, TraceLogger
+from code.framework.planner_executor import PlannerExecutorAgent
 
 
 def test_analyze_produces_report():

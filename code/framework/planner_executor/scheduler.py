@@ -137,8 +137,8 @@ class ParallelScheduler:
                 ready_tasks = task_dag.get_ready_tasks()
 
                 if not ready_tasks:
-                    if task_dag.is_stuck():
-                        logger.error("DAG is stuck: pending tasks but none ready")
+                    if task_dag.is_stuck() or not task_dag.has_pending():
+                        logger.error("DAG cannot make further progress")
                         break
                     # 没有 ready 任务但有 running 任务，等待
                     time.sleep(0.1)

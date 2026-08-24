@@ -8,10 +8,10 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from code.planner_executor.dag import TaskNode, TaskDAG, TaskStatus
-from code.planner_executor.verifier import PlanVerifier, VerificationResult
-from code.planner_executor.scheduler import ParallelScheduler, FailureStrategy, ExecutionResult
-from code.planner_executor.planner import Planner
+from code.framework.planner_executor.dag import TaskNode, TaskDAG, TaskStatus
+from code.framework.planner_executor.verifier import PlanVerifier, VerificationResult
+from code.framework.planner_executor.scheduler import ParallelScheduler, FailureStrategy, ExecutionResult
+from code.framework.planner_executor.planner import Planner
 
 
 class TestTaskNode(unittest.TestCase):

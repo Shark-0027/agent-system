@@ -1,14 +1,14 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from code.csv_agent.workspace import Workspace
-from code.csv_agent.datagen import gen_sales
-from code.csv_agent.servers.data_loader import csv_load, data_summary
-from code.csv_agent.servers.data_processor import data_clean, feature_engineer
-from code.csv_agent.servers.model_trainer import model_train, model_suggest
+from code.workbench.csv_agent.workspace import Workspace
+from code.workbench.csv_agent.datagen import gen_sales
+from code.workbench.csv_agent.servers.data_loader import csv_load, data_summary
+from code.workbench.csv_agent.servers.data_processor import data_clean, feature_engineer
+from code.workbench.csv_agent.servers.model_trainer import model_train, model_suggest
 import matplotlib
 matplotlib.use("Agg")
-from code.csv_agent.servers.visualizer import eda_plot
-from code.csv_agent.servers.report_generator import report_generate
+from code.workbench.csv_agent.servers.visualizer import eda_plot
+from code.workbench.csv_agent.servers.report_generator import report_generate
 
 def _mkws():
     ws = Workspace.create()
@@ -69,7 +69,7 @@ def test_model_suggest_returns_recommendation():
 
 def test_model_train_returns_metrics():
     ws = _mkws()
-    from code.csv_agent.servers.data_processor import data_clean, feature_engineer
+    from code.workbench.csv_agent.servers.data_processor import data_clean, feature_engineer
     data_clean(ws, {"ws": str(ws.root), "fill": "median"})
     feature_engineer(ws, {"ws": str(ws.root)})
     out = model_train(ws, {"ws": str(ws.root), "target": "sales"})

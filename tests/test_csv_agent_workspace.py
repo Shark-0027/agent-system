@@ -1,7 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import pandas as pd
-from code.csv_agent.workspace import Workspace, WorkspaceContext
+from code.workbench.csv_agent.workspace import Workspace, WorkspaceContext
 
 def test_workspace_create_and_csv_roundtrip(tmp_path):
     ws = Workspace.create()

@@ -26,44 +26,70 @@ agent-system/
 ├── .gitignore
 ├── code/
 │   ├── __init__.py
-│   ├── agent_runtime/          # 公共主线：Agent Runtime
+│   ├── framework/              # ══ Agent 系统框架层（通用、可复用）══
 │   │   ├── __init__.py
-│   │   ├── core.py             # Agent Loop 核心引擎
-│   │   ├── llm.py              # LLM 客户端（OpenAI 兼容）
-│   │   ├── tools.py            # 工具注册与管理
-│   │   ├── state.py            # 状态管理
-│   │   ├── session.py          # 会话隔离
-│   │   ├── trace.py            # 运行追踪
-│   │   └── exceptions.py       # 异常类体系
-│   ├── mcp/                    # 选题一：MCP 与工具系统
-│   │   ├── __init__.py
-│   │   ├── client.py           # MCP Client
-│   │   ├── server.py           # MCP Server 基类
-│   │   ├── registry.py         # 工具注册表
-│   │   ├── schema.py           # 工具参数 Schema
-│   │   ├── router.py           # 智能工具路由
-│   │   └── servers/            # 自定义 MCP Server
-│   │       ├── campus_info.py  # 校园信息查询
-│   │       ├── repo_analysis.py # 代码仓库分析
-│   │       └── doc_search.py   # 文档检索
-│   ├── planner_executor/       # 选题三：Planner–Executor
-│   │   ├── __init__.py
-│   │   ├── planner.py          # 任务规划器
-│   │   ├── executor.py         # 执行器 + 顶层调度
-│   │   ├── dag.py              # 动态 DAG 任务图
-│   │   ├── verifier.py         # 计划质量验证
-│   │   └── scheduler.py        # 并行调度器
-│   ├── evaluation/             # 评测系统
-│   │   ├── __init__.py
-│   │   ├── tasks.py            # 20+ 评测任务
-│   │   └── metrics.py          # 评价指标
-│   └── examples/               # 示例应用
-│       ├── campus_assistant.py # 校园智能助手
-│       └── research_agent.py   # 深度研究 Agent
-└── tests/                      # 测试
+│   │   ├── agent_runtime/      # 公共主线：Agent Runtime
+│   │   │   ├── __init__.py
+│   │   │   ├── core.py         # Agent Loop 核心引擎
+│   │   │   ├── llm.py          # LLM 客户端（OpenAI 兼容）
+│   │   │   ├── tools.py        # 工具注册与管理
+│   │   │   ├── state.py        # 状态管理
+│   │   │   ├── session.py      # 会话隔离
+│   │   │   ├── trace.py        # 运行追踪
+│   │   │   └── exceptions.py   # 异常类体系
+│   │   ├── mcp/                # 选题一：MCP 与工具系统
+│   │   │   ├── __init__.py
+│   │   │   ├── client.py       # MCP Client
+│   │   │   ├── server.py       # MCP Server 基类
+│   │   │   ├── registry.py     # 工具注册表
+│   │   │   ├── schema.py       # 工具参数 Schema
+│   │   │   ├── router.py       # 智能工具路由
+│   │   │   └── servers/        # 自定义 MCP Server
+│   │   │       ├── campus_info.py  # 校园信息查询
+│   │   │       ├── repo_analysis.py # 代码仓库分析
+│   │   │       └── doc_search.py   # 文档检索
+│   │   ├── planner_executor/   # 选题三：Planner–Executor
+│   │   │   ├── __init__.py
+│   │   │   ├── planner.py      # 任务规划器
+│   │   │   ├── executor.py     # 执行器 + 顶层调度
+│   │   │   ├── dag.py          # 动态 DAG 任务图
+│   │   │   ├── verifier.py     # 计划质量验证
+│   │   │   └── scheduler.py    # 并行调度器
+│   │   ├── evaluation/         # 评测系统
+│   │   │   ├── __init__.py
+│   │   │   ├── tasks.py        # 20+ 评测任务
+│   │   │   └── metrics.py      # 评价指标
+│   │   └── examples/           # 框架层示例应用
+│   │       ├── campus_assistant.py # 校园智能助手
+│   │       └── research_agent.py   # 深度研究 Agent
+│   └── workbench/              # ══ CSV 数据分析工作台应用层 ══
+│       ├── __init__.py
+│       └── csv_agent/          # CSV 数据分析 Agent（业务应用）
+│           ├── __init__.py
+│           ├── orchestrator.py # CsvAgent 编排入口
+│           ├── bridge.py       # MCP 双注册桥梁
+│           ├── api.py          # FastAPI 工作台后端
+│           ├── cli.py          # 命令行入口
+│           ├── workspace.py    # 工作区数据总线
+│           ├── memory.py       # SQLite 记忆/偏好
+│           ├── datagen.py      # 样例数据生成
+│           ├── eval_csv.py     # CSV 评测与基线对照
+│           ├── sandbox.py      # 执行沙箱
+│           ├── servers/        # 5 个数据分析 MCP Server
+│           │   ├── data_loader.py
+│           │   ├── data_processor.py
+│           │   ├── visualizer.py
+│           │   ├── model_trainer.py
+│           │   └── report_generator.py
+│           └── web/            # 前端工作台（SPA）
+│               ├── index.html
+│               ├── app.css
+│               └── app.js
+└── tests/                      # 测试（同一命令全量运行）
     ├── test_agent_runtime.py
     ├── test_mcp.py
-    └── test_planner_executor.py
+    ├── test_planner_executor.py
+    └── test_csv_agent_*.py
 ```
 
 ## 快速开始
@@ -90,17 +116,19 @@ cp .env.example .env
 
 ```bash
 # 校园智能助手
-python code/examples/campus_assistant.py
+python code/framework/examples/campus_assistant.py
 
 # 深度研究 Agent
-python code/examples/research_agent.py
+python code/framework/examples/research_agent.py
 ```
 
 ### 运行测试
 
+所有测试通过同一命令全量运行：
+
 ```bash
-# 运行测试（uv）
-uv run python -m unittest tests.test_agent_runtime tests.test_mcp tests.test_planner_executor -v
+# 运行全部测试（uv）
+uv run pytest -q
 ```
 
 ## 核心模块
@@ -195,36 +223,36 @@ Agent Runtime 是 Agent 系统的运行基础，负责组织模型推理、工�
 在 Agent Runtime / MCP / Planner–Executor 之上实现的一个端到端 CSV 数据分析 Agent：上传 CSV + 自然语言分析目标 → 自动完成「加载 → 清洗 → 探索 → 特征工程 → 建模/绘图 → 生成 Markdown 报告」。
 
 **分层结构：**
-- `code/csv_agent/workspace.py`：每次分析独立工作区（`input.csv` / `cleaned.csv` / `charts/` / `report.md`）
-- `code/csv_agent/sandbox.py`：子进程隔离 + 超时的安全执行沙箱
-- `code/csv_agent/servers/`：5 个 MCP Server，8 个工具（data-loader / data-processor / visualizer / model-trainer / report-generator）
-- `code/csv_agent/memory.py`：SQLite 记忆（偏好 + 历史分析）
-- `code/csv_agent/bridge.py`：MCP 工具双注册——既走 MCP 协议又注入 Planner-Executor 的 ToolRegistry
-- `code/csv_agent/orchestrator.py`：`CsvAgent` 编排入口（设 WorkspaceContext → Planner-Executor 执行目标 → 兜底生成报告）
-- `code/csv_agent/eval_csv.py`：20 个 4 难度任务的自动评测 + Planner-Executor vs 简单 Agent Loop 基线对照
+- `code/workbench/csv_agent/workspace.py`：每次分析独立工作区（`input.csv` / `cleaned.csv` / `charts/` / `report.md`）
+- `code/workbench/csv_agent/sandbox.py`：子进程隔离 + 超时的安全执行沙箱
+- `code/workbench/csv_agent/servers/`：5 个 MCP Server，8 个工具（data-loader / data-processor / visualizer / model-trainer / report-generator）
+- `code/workbench/csv_agent/memory.py`：SQLite 记忆（偏好 + 历史分析）
+- `code/workbench/csv_agent/bridge.py`：MCP 工具双注册——既走 MCP 协议又注入 Planner-Executor 的 ToolRegistry
+- `code/workbench/csv_agent/orchestrator.py`：`CsvAgent` 编排入口（设 WorkspaceContext → Planner-Executor 执行目标 → 兜底生成报告）
+- `code/workbench/csv_agent/eval_csv.py`：20 个 4 难度任务的自动评测 + Planner-Executor vs 简单 Agent Loop 基线对照
 
 ### CLI 用法
 
 ```bash
 # 生成样例数据
-uv run python -m code.csv_agent.cli sample /tmp/s.csv
+uv run python -m code.workbench.csv_agent.cli sample /tmp/s.csv
 
 # 分析（未配置 LLM 时加 --no-llm 走本地模式）
-uv run python -m code.csv_agent.cli analyze /tmp/s.csv "分析销售额影响因素并生成报告" --no-llm
+uv run python -m code.workbench.csv_agent.cli analyze /tmp/s.csv "分析销售额影响因素并生成报告" --no-llm
 ```
 
 ### API 启动
 
 ```bash
-uv run uvicorn code.csv_agent.api:app --reload
+uv run uvicorn code.workbench.csv_agent.api:app --reload
 # POST /api/analyze  (multipart: goal + file)  →  {success, run_id, report, error}
 # GET  /api/report/{run_id}                    →  Markdown 报告内容
-# GET  /api/health                             →  {"status": "ok"}
+# GET  /api/health                             →  {"status": "ok", "mode": "llm"|"local"}
 ```
 
 ### 交互式工作台
 
-在 API 基础上提供单页交互式工作台（服务启动后访问 `http://127.0.0.1:8000/`，前端位于 `code/csv_agent/web/`）。前端把底层能力拆成一组按钮，覆盖上传/生成样例、分步执行单个分析工具、产物查看与下载、历史记录：
+在 API 基础上提供单页交互式工作台（服务启动后访问 `http://127.0.0.1:8000/`，前端位于 `code/workbench/csv_agent/web/`）。前端把底层能力拆成一组按钮，覆盖上传/生成样例、分步执行单个分析工具、产物查看与下载、历史记录：
 
 | 分区 | 前端按钮 | 后端端点 |
 |---|---|---|

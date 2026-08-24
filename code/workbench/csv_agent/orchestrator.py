@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from code.csv_agent.bridge import build_tool_registry
-from code.csv_agent.memory import MemoryStore
-from code.csv_agent.workspace import Workspace, WorkspaceContext
-from code.agent_runtime import LLMClient, SessionManager, TraceLogger
-from code.planner_executor import PlannerExecutorAgent, ToolRegistry
+from code.workbench.csv_agent.bridge import build_tool_registry
+from code.workbench.csv_agent.memory import MemoryStore
+from code.workbench.csv_agent.workspace import Workspace, WorkspaceContext
+from code.framework.agent_runtime import LLMClient, SessionManager, TraceLogger
+from code.framework.planner_executor import PlannerExecutorAgent, ToolRegistry
 
 
 class CsvAgent:

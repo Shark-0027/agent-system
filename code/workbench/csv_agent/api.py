@@ -1,6 +1,6 @@
 """CSV 数据分析 Agent 的 FastAPI 接口。
 
-启动: uvicorn code.csv_agent.api:app --reload
+启动: uvicorn code.workbench.csv_agent.api:app --reload
 
 提供工作台相关端点：上传/生成样例、分步执行底层工具、产物预览与下载、
 一键全流程分析、历史与偏好管理。前端单页由 / 与 /web 提供。
@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -17,18 +19,31 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from code.csv_agent.bridge import build_tool_registry
-from code.csv_agent.datagen import gen_sales
-from code.csv_agent.memory import MemoryStore
-from code.csv_agent.orchestrator import CsvAgent
-from code.csv_agent.workspace import Workspace, WorkspaceContext
+from code.workbench.csv_agent.bridge import build_tool_registry
+from code.workbench.csv_agent.datagen import gen_sales
+from code.workbench.csv_agent.memory import MemoryStore
+from code.workbench.csv_agent.orchestrator import CsvAgent
+from code.workbench.csv_agent.workspace import Workspace, WorkspaceContext
 
 app = FastAPI(title="CSV 数据分析 Agent 工作台")
 
-_memory = MemoryStore()
+_memory = MemoryStore(str(Path(tempfile.gettempdir()) / "csv_agent_memory.db"))
 _tools = build_tool_registry()
 # run_id -> workspace 根目录（工作区产物均落在其下）
 _runs: Dict[str, Any] = {}
+# 内存中保留的运行数上限，超限时清理最旧运行与其工作区目录，防止长期运行内存/磁盘泄漏
+_MAX_RUNS = 200
+# 首次确定后缓存的服务运行模式（"llm"|"local"）
+_MODE_CACHE: Optional[str] = None
+
+
+def _trim_runs() -> None:
+    """当运行数超过上限时，移除最旧的一批并清理对应工作区目录。"""
+    while len(_runs) > _MAX_RUNS:
+        oldest_id, oldest_root = next(iter(_runs.items()))
+        _runs.pop(oldest_id, None)
+        if isinstance(oldest_root, Path):
+            shutil.rmtree(oldest_root, ignore_errors=True)
 
 
 def _build_agent() -> Dict[str, Any]:
@@ -45,8 +60,11 @@ def _build_agent() -> Dict[str, Any]:
 
 
 def _resolve_mode() -> str:
-    """当前服务实际可用的运行模式（不创建 Agent）。"""
-    return _build_agent()["mode"]
+    """当前服务实际可用的运行模式（不创建 Agent，缓存首次结果）。"""
+    global _MODE_CACHE
+    if _MODE_CACHE is None:
+        _MODE_CACHE = _build_agent()["mode"]
+    return _MODE_CACHE
 
 
 def _run_root(rid: str) -> Path:
@@ -131,6 +149,7 @@ def _create_run(df: pd.DataFrame) -> Dict[str, Any]:
     ws = Workspace.create()
     ws.save_csv(df, "input.csv")
     _runs[ws.run_id] = ws.root
+    _trim_runs()
     return {"run_id": ws.run_id, "root": str(ws.root)}
 
 
@@ -234,9 +253,13 @@ def run_tool(rid: str, body: Dict[str, Any] = Body(...)):
 def analyze(goal: str = Form(...), file: UploadFile = File(...)):
     ws = Workspace.create()
     raw = file.file.read()
-    df = pd.read_csv(io.BytesIO(raw))
+    try:
+        df = pd.read_csv(io.BytesIO(raw))
+    except Exception as e:  # noqa: BLE001 非 CSV 内容统一返回 400
+        raise HTTPException(400, f"invalid csv: {e}")
     ws.save_csv(df, "input.csv")
     _runs[ws.run_id] = ws.root
+    _trim_runs()
     built = _build_agent()
     out = built["agent"].analyze(ws, goal)
     return {

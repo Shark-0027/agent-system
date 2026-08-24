@@ -9,10 +9,10 @@ import sys
 import shutil
 import argparse
 
-from code.csv_agent.orchestrator import CsvAgent
-from code.csv_agent.memory import MemoryStore
-from code.csv_agent.datagen import gen_sales
-from code.csv_agent.workspace import Workspace
+from code.workbench.csv_agent.orchestrator import CsvAgent
+from code.workbench.csv_agent.memory import MemoryStore
+from code.workbench.csv_agent.datagen import gen_sales
+from code.workbench.csv_agent.workspace import Workspace
 
 
 def build_parser() -> argparse.ArgumentParser:

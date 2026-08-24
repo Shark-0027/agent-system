@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from code.csv_agent.bridge import build_tool_registry, connect_mcp_servers
+from code.workbench.csv_agent.bridge import build_tool_registry, connect_mcp_servers
 
 def test_build_tool_registry_contains_all_tools():
     reg = build_tool_registry()

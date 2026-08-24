@@ -1,9 +1,9 @@
 from __future__ import annotations
 from typing import List
-from code.agent_runtime import Tool
-from code.planner_executor import ToolRegistry
-from code.mcp import MCPClient
-from code.csv_agent.servers import (DataLoaderServer, DataProcessorServer, VisualizerServer,
+from code.framework.agent_runtime import Tool
+from code.framework.planner_executor import ToolRegistry
+from code.framework.mcp import MCPClient
+from code.workbench.csv_agent.servers import (DataLoaderServer, DataProcessorServer, VisualizerServer,
                                     ModelTrainerServer, ReportGeneratorServer)
 
 def all_servers() -> List:
@@ -62,7 +62,7 @@ def build_tool_registry() -> ToolRegistry:
                     p = dict(params or {})
                     ws_val = ws or p.get("ws") or workspace
                     if not ws_val:
-                        from code.csv_agent.workspace import WorkspaceContext
+                        from code.workbench.csv_agent.workspace import WorkspaceContext
                         cur = WorkspaceContext.current()
                         if cur is not None:
                             ws_val = str(cur.root)

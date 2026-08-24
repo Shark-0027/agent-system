@@ -1,7 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from code.csv_agent.eval_csv import build_csv_tasks, run_csv_eval, run_comparison
+from code.workbench.csv_agent.eval_csv import build_csv_tasks, run_csv_eval, run_comparison
 
 
 def test_build_csv_tasks_has_20_plus():

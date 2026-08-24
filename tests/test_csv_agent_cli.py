@@ -1,9 +1,9 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from code.csv_agent import cli
-from code.csv_agent.datagen import gen_sales
-from code.csv_agent.workspace import Workspace
+from code.workbench.csv_agent import cli
+from code.workbench.csv_agent.datagen import gen_sales
+from code.workbench.csv_agent.workspace import Workspace
 
 
 def test_cli_analyze():

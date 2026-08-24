@@ -2,11 +2,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 import pandas as pd
-from code.mcp import MCPServer, ToolSchema
-from code.csv_agent.workspace import Workspace
+from code.framework.mcp import MCPServer, ToolSchema
+from code.workbench.csv_agent.workspace import Workspace
 
 def _resolve_ws(params: Dict[str, Any]) -> Workspace:
-    from code.csv_agent.workspace import WorkspaceContext
+    from code.workbench.csv_agent.workspace import WorkspaceContext
     ws_str = params.get("ws")
     if ws_str:
         return Workspace(run_id="rs", root=Path(ws_str))
