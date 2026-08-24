@@ -469,6 +469,35 @@ table.data tr:nth-child(even) { background: #FAFBFE; }
   word-break: break-word;
 }
 
+/* 目标模板与智能建议 chips */
+.goal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.goal-chips .chip {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--ink-700);
+  background: var(--surface);
+  border: 1px solid var(--ink-100);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.goal-chips .chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
+.goal-chips .chip.active { border-color: var(--primary); color: var(--primary); background: var(--primary-50); font-weight: 600; }
+.goal-suggest {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--primary-50);
+  border: 1px dashed var(--primary-100);
+  border-radius: var(--radius-sm);
+}
+.goal-suggest .chip { background: var(--surface); }
+
 /* 响应式 */
 @media (max-width: 1024px) {
   .hero-grid { grid-template-columns: 1fr; }

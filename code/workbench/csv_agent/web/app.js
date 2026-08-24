@@ -586,11 +586,34 @@
     $("#flowSampleBtn").addEventListener("click", startFlowWithSample);
     $("#flowStartBtn").addEventListener("click", startFlow);
 
+    // 目标模板 chips：点击即填入分析目标
+    $$("#goalChips .chip").forEach((c) => c.addEventListener("click", () => setGoalChip(c)));
+
     $$("#flowResultTabs .result-tab").forEach((t) => t.addEventListener("click", () => {
       state.flowTab = t.dataset.tab;
       $$("#flowResultTabs .result-tab").forEach((x) => x.classList.toggle("active", x === t));
       renderFlowResult();
     }));
+  }
+
+  function setGoalChip(chip) {
+    $("#flowGoal").value = chip.dataset.goal;
+    $$("#goalChips .chip").forEach((x) => x.classList.remove("active"));
+    $$("#goalSuggestChips .chip").forEach((x) => x.classList.remove("active"));
+    chip.classList.add("active");
+  }
+
+  // 上传数据后基于数据推断可分析方向，展示为建议 chips（不阻塞主流程）
+  async function loadGoalSuggest(rid) {
+    try {
+      const r = await api(`/api/run/${rid}/suggest-goals`);
+      if (!(r.suggestions && r.suggestions.length)) return;
+      const box = $("#goalSuggest");
+      const c = $("#goalSuggestChips");
+      c.innerHTML = r.suggestions.map((s) => `<span class="chip" data-goal="${esc(s)}">${esc(s)}</span>`).join("");
+      c.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => setGoalChip(chip)));
+      box.style.display = "block";
+    } catch (e) { /* 建议拉取失败不影响分析主流程 */ }
   }
 
   function setFlowFile(file) {
@@ -605,6 +628,7 @@
       const r = await api("/api/sample");
       state.flowRunId = r.run_id;
       await loadRuns();
+      loadGoalSuggest(state.flowRunId); // 展示基于样例数据的分析建议
       const goal = $("#flowGoal").value.trim() || "分析样例销售数据，找出关键趋势并生成报告";
       runFlowAnalyze(goal);
     } catch (e) { flowError(e.message); }
@@ -612,9 +636,9 @@
 
   async function startFlow() {
     const file = state.flowFile;
+    // 目标可选：不填则由后端使用默认目标（综合探索分析），不再强制要求
     const goal = $("#flowGoal").value.trim();
     if (!file) { toast("请先上传 CSV 文件", true); return; }
-    if (!goal) { toast("请填写分析目标", true); return; }
     $("#flowProgress").style.display = "block";
     resetFlowProgress();
     try {
@@ -623,6 +647,7 @@
       const r = await api("/api/run", { method: "POST", body: fd });
       state.flowRunId = r.run_id;
       await loadRuns();
+      loadGoalSuggest(state.flowRunId); // 展示基于当前数据的分析建议
       runFlowAnalyze(goal);
     } catch (e) { flowError(e.message); }
   }

@@ -42,6 +42,9 @@ _MODE_CACHE: Optional[str] = None
 # 为 None 时后端使用 .env 中的默认配置，不硬编码。
 _LLM_OVERRIDE: Optional[Dict[str, Optional[str]]] = None
 
+# 全流程分析目标为空时的默认目标：让"不填也能分析"有合理的语义兜底
+_DEFAULT_GOAL = "对这份数据进行全面的探索性分析，识别关键趋势与异常，并生成可视化报告"
+
 # 允许在 /api/llm/config 中设置的前端字段（白名单，避免任意键注入）
 _LLM_FIELDS = ("api_key", "base_url", "model_name")
 
@@ -385,13 +388,63 @@ def run_tool(rid: str, body: Dict[str, Any] = Body(...)):
 # ---------------------------------------------------------------------------
 # 全流程异步分析（基于既有 run）+ 进度轮询 + 执行轨迹
 # ---------------------------------------------------------------------------
+def _suggest_goals(rid: str) -> Dict[str, Any]:
+    """基于已上传数据的 schema 推断可执行的分析方向，帮助用户提供分析目标。
+
+    读取 input.csv 头部判断数值/时间/类别列，据此给出 3-4 条目标建议。
+    即使读不到 CSV，也会给出通用的综合报告建议，保证前端始终有可选目标。
+    """
+    root = _run_root(rid)
+    schema = Workspace(run_id=rid, root=root).load_json("schema.json") or {}
+    rows = schema.get("rows")
+    suggestions = []
+    numeric_cols, time_cols, cat_cols = [], [], []
+    p = root / "input.csv"
+    if p.exists():
+        try:
+            df = pd.read_csv(p, nrows=100)
+            for c in df.columns:
+                col = str(c)
+                low = col.lower()
+                if any(k in low for k in ("date", "time", "year", "month", "日", "时间", "年", "月")) or pd.api.types.is_datetime64_any_dtype(df[c]):
+                    time_cols.append(col)
+                elif pd.api.types.is_numeric_dtype(df[c]):
+                    numeric_cols.append(col)
+                elif c is not None:
+                    cat_cols.append(col)
+        except Exception:  # noqa: BLE001 读不到时仅用列名兜底
+            pass
+    if time_cols:
+        suggestions.append(f"📈 趋势分析：分析「{time_cols[0]}」随时间的变化趋势，识别增长或下滑拐点")
+    if numeric_cols:
+        suggestions.append(f"📐 分布分析：分析数值列（如 {numeric_cols[0]}）的分布特征并拟合最优分布")
+        suggestions.append("🔍 异常检测：识别数据中的离群点与异常值，分析其成因")
+    if len(numeric_cols) >= 2:
+        suggestions.append(f"🤝 多因素分析：找出影响「{numeric_cols[-1]}」的关键因素并构建回归模型")
+    if cat_cols:
+        suggestions.append(f"🧩 特征画像：对比不同「{cat_cols[0]}」类别下的分布差异")
+    if rows is not None:
+        suggestions.append(f"📊 综合报告：对 {rows} 行数据进行全面探索性分析并生成报告")
+    if not suggestions:
+        suggestions.append("📊 综合报告：对这份数据进行全面探索性分析并生成报告")
+    return {"success": True, "suggestions": suggestions[:4]}
+
+
+@app.get("/api/run/{rid}/suggest-goals")
+def run_suggest_goals(rid: str):
+    """根据该次运行的数据推断可执行的分析目标建议，供前端一键选用。"""
+    return _suggest_goals(rid)
+
+
 @app.post("/api/run/{rid}/analyze")
-def run_analyze(rid: str, goal: str = Form(...), async_mode: bool = Query(False)):
+def run_analyze(rid: str, goal: str = Form(""), async_mode: bool = Query(False)):
     """在既有运行上执行全流程分析。
 
+    goal 可为空：空时使用默认目标，保证"不填也能分析"。
     async_mode=True 时后台线程执行，通过 /api/run/{rid}/progress 轮询进度；
     否则同步返回结果（兼容旧调用）。无 LLM 时回退本地规则模式。
     """
+    goal = (goal or "").strip() or _DEFAULT_GOAL
     root = _run_root(rid)
     if async_mode:
         threading.Thread(
@@ -435,7 +488,8 @@ def run_llm_mode(rid: str):
 
 
 @app.post("/api/analyze")
-def analyze(goal: str = Form(...), file: UploadFile = File(...)):
+def analyze(goal: str = Form(""), file: UploadFile = File(...)):
+    goal = (goal or "").strip() or _DEFAULT_GOAL
     ws = Workspace.create()
     raw = file.file.read()
     try:

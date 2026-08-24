@@ -157,8 +157,18 @@
           <div class="small muted" id="flowFileName" style="margin-top:8px">未选择文件</div>
         </div>
         <div class="field-group">
-          <label>分析目标</label>
-          <textarea id="flowGoal" placeholder="例如：分析各区域销售额趋势，找出影响销量的关键因素并给出优化建议"></textarea>
+          <label>分析目标 <span class="muted small">（可选，不填将自动进行综合探索分析）</span></label>
+          <textarea id="flowGoal" placeholder="描述你关心的分析方向，如：销售额趋势、异常检测、影响因素建模…"></textarea>
+          <div class="goal-chips" id="goalChips">
+            <span class="chip" data-goal="📈 趋势分析：分析销售额随时间的变化趋势，识别增长或下滑拐点">📈 趋势分析</span>
+            <span class="chip" data-goal="🔍 异常检测：识别数据中的离群点与异常值，分析其成因">🔍 异常检测</span>
+            <span class="chip" data-goal="🤝 多因素分析：找出影响目标变量的关键因素并构建回归模型">🤝 多因素建模</span>
+            <span class="chip" data-goal="📊 综合报告：对这份数据进行全面探索性分析并生成可视化报告">📊 综合报告</span>
+          </div>
+          <div class="goal-suggest" id="goalSuggest" style="display:none">
+            <div class="small muted" style="margin-bottom:6px">💡 基于你的数据，还可以这样分析：</div>
+            <div class="goal-chips" id="goalSuggestChips"></div>
+          </div>
         </div>
         <div class="flow-actions">
           <button class="btn btn-primary btn-lg" id="flowStartBtn">开始分析</button>
@@ -212,6 +222,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=7"></script>
+  <script src="/web/app.js?v=8"></script>
 </body>
 </html>
