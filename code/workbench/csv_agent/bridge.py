@@ -9,7 +9,7 @@ from code.workbench.csv_agent.servers import (DataLoaderServer, DataProcessorSer
 
 def all_servers(llm_config: Optional[Dict[str, Any]] = None) -> List:
     return [DataLoaderServer(), DataProcessorServer(), VisualizerServer(),
-            ModelTrainerServer(), ReportGeneratorServer(), StatisticsServer(),
+            ModelTrainerServer(), ReportGeneratorServer(llm_config=llm_config), StatisticsServer(),
             QueryServer(llm_config=llm_config)]
 
 def connect_mcp_servers(llm_config: Optional[Dict[str, Any]] = None) -> MCPClient:

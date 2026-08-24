@@ -11,6 +11,8 @@
     sidebarSection: "runs",
     flowRunId: "",
     flowTab: "report",
+    // run_id -> [{role:'user'|'assistant', text, used_llm}] 数据答疑对话缓存
+    chat: {},
   };
 
   const TOOL_LABEL = {
@@ -438,7 +440,64 @@
       const md = await fetch(`/api/report/${state.runId}`).then((r) => r.ok ? r.text() : null);
       if (!md) { box.innerHTML = '<div class="empty"><div class="icon">📝</div><p>暂无报告，试试执行「生成报告」或「全流程分析」</p></div>'; return; }
       box.innerHTML = `<div class="report-body">${esc(md).replace(/\n/g, "<br>")}</div>`;
+      renderChatPanel(box, state.runId);
     } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
+  }
+
+  // -- 数据答疑对话面板（工作台报告页 / 全流程结果页共用） --
+  function renderChatMessages(runId, list, msgEl) {
+    if (!msgEl || !list) return;
+    msgEl.innerHTML = list.length
+      ? list.map((m) => {
+          if (m.role === "notice") return `<div class="chat-notice">⚠ ${esc(m.text).replace(/\n/g, "<br>")}</div>`;
+          return `
+          <div class="chat-msg ${m.role === "user" ? "chat-user" : "chat-ai"}">
+            <div class="chat-role">${m.role === "user" ? "你" : "AI"}</div>
+            <div class="chat-text">${esc(m.text).replace(/\n/g, "<br>")}</div>
+            ${m.used_llm ? '<div class="chat-tag">· LLM 生成</div>' : ""}
+          </div>`;
+        }).join("")
+      : '<div class="chat-empty">基于本次分析结果向我提问，例如「哪些特征最影响销量？」</div>';
+    const listEl = msgEl.parentElement.querySelector(".chat-list");
+    if (listEl) listEl.scrollTo(0, listEl.scrollHeight);
+  }
+
+  function renderChatPanel(box, runId) {
+    const panel = document.createElement("div");
+    panel.className = "chat-panel";
+    panel.innerHTML = `
+      <div class="chat-head">💬 数据答疑 <span class="muted small">AI 基于本次分析产物回答</span></div>
+      <div class="chat-list"><div class="chat-msgs"></div></div>
+      <div class="chat-box">
+        <input type="text" class="chat-input" placeholder="输入问题，如：各区域销量如何？数据有无离群？">
+        <button type="button" class="btn btn-primary chat-send">发送</button>
+      </div>`;
+    box.appendChild(panel);
+    const msgEl = panel.querySelector(".chat-msgs");
+    const input = panel.querySelector(".chat-input");
+    const list = state.chat[runId] || (state.chat[runId] = []);
+    renderChatMessages(runId, list, msgEl);
+    const send = async () => {
+      const q = input.value.trim();
+      if (!q) return;
+      list.push({ role: "user", text: q });
+      input.value = "";
+      renderChatMessages(runId, list, msgEl);
+      try {
+        const res = await api(`/api/run/${runId}/chat`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: q }),
+        });
+        list.push({ role: "assistant", text: res.answer, used_llm: res.used_llm });
+        // 规则作答时提示原因与解决办法（如 API 限额 / 配置缺失）
+        if (!res.used_llm && res.reason) list.push({ role: "notice", text: res.reason });
+      } catch (e) {
+        list.push({ role: "assistant", text: "出错了：" + e.message });
+      }
+      renderChatMessages(runId, list, msgEl);
+    };
+    panel.querySelector(".chat-send").addEventListener("click", send);
+    input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") send(); });
   }
 
   async function loadTrace() {
@@ -646,6 +705,7 @@
       try {
         const md = await fetch(`/api/report/${id}`).then((r) => r.ok ? r.text() : null);
         box.innerHTML = md ? `<div class="report-body">${esc(md).replace(/\n/g, "<br>")}</div>` : '<div class="empty">暂无报告</div>';
+        if (md) renderChatPanel(box, id);
       } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
     } else if (state.flowTab === "charts") {
       try {

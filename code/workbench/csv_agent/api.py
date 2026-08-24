@@ -25,6 +25,7 @@ from code.workbench.csv_agent.bridge import build_tool_registry
 from code.workbench.csv_agent.datagen import gen_sales
 from code.workbench.csv_agent.memory import MemoryStore
 from code.workbench.csv_agent.orchestrator import CsvAgent
+from code.workbench.csv_agent.servers.report_generator import collect_context
 from code.workbench.csv_agent.workspace import Workspace, WorkspaceContext
 from code.framework.agent_runtime import LLMClient
 
@@ -474,6 +475,111 @@ def report(run_id: str):
     if text is None:
         raise HTTPException(404, "report not found")
     return text
+
+
+# ---------------------------------------------------------------------------
+# 数据答疑对话：基于单次运行的分析产物回答问题（LLM 优先 + 规则兜底）
+# ---------------------------------------------------------------------------
+def _rule_chat_answer(question: str, ctx: Dict[str, Any]) -> str:
+    """无 LLM 时用规则基于真实产物回答，命中关键词即引用对应产物。"""
+    q = question or ""
+    chunks = []
+    schema = ctx.get("schema") or {}
+    model = ctx.get("model") or {}
+
+    if any(k in q for k in ("分布", "正态", "服从", "概率")):
+        dist = ctx.get("stats_distfit") or {}
+        if dist.get("best"):
+            chunks.append(f"`{dist.get('col')}` 的最优拟合分布是 {dist['best']}（KS 检验p={dist.get('results',[{}])[0].get('p_value') if dist.get('results') else '—'}）。")
+    if any(k in q for k in ("离群", "异常", "极端", "outlier")):
+        anom = ctx.get("stats_anomaly") or {}
+        if anom.get("outlier_count"):
+            chunks.append(f"`{anom.get('col')}` 检测到 {anom['outlier_count']} 个离群点（z 阈值为 {anom.get('threshold')}）。")
+    if any(k in q for k in ("相关", "关系", "相互作用", "联动")):
+        corr = ctx.get("stats_corr") or {}
+        pairs = sorted((corr.get("pairs") or []), key=lambda x: abs(x.get("pearson", 0) or 0), reverse=True)
+        if pairs:
+            p = pairs[0]
+            chunks.append(f"相关性最高的是 `{p.get('a')}` 与 `{p.get('b')}`，皮尔逊 r={p.get('pearson')}。")
+    if any(k in q for k in ("缺失", "空值", "多少空")):
+        missing = schema.get("missing")
+        if isinstance(missing, dict):
+            chunks.append(f"数据缺失情况：{missing}")
+    if any(k in q for k in ("特征", "重要", "关键因素", "哪些因素", "影响最大")):
+        imp = model.get("importance") or []
+        if imp:
+            top = imp[0]
+            chunks.append(f"特征重要性最高的是 `{top[0]}`（{top[1]}），对目标贡献最大。")
+    if any(k in q for k in ("模型", "拟合", "指标", "R2", "评估", "效果如何")):
+        best = model.get("best")
+        results = model.get("results") or {}
+        if best:
+            m = results.get(best) or {}
+            chunks.append(f"当前最优模型为 {best}（R²={m.get('r2')}，RMSE={m.get('rmse')}）。")
+    if any(k in q for k in ("多少行", "几行", "规模", "概览", "多少列", "几列", "数据结构", "有哪些列", "列名")):
+        if schema.get("rows") is not None:
+            chunks.append(f"数据共 {schema.get('rows')} 行、{schema.get('cols')} 列；列：{', '.join(str(c) for c in (schema.get('columns') or [])[:8])}。")
+
+    if chunks:
+        return "\n".join(chunks)
+    return ("当前未检测到与问题直接对应的分析结果。可尝试询问：哪些特征最影响目标、"
+            "数据分布/有无离群、列间相关性、缺失情况等。")
+
+
+@app.post("/api/run/{rid}/chat")
+def run_chat(rid: str, body: Dict[str, Any] = Body(...)):
+    """基于该次运行的分析产物回答用户的自然语言问题。
+
+    LLM 可用时让模型看到产物与报告后作答；否则回退本地规则基于真实数值回答。
+    """
+    root = _run_root(rid)
+    workspace = Workspace(run_id=rid, root=root)
+    question = str((body.get("question") or "")).strip()
+    if not question:
+        raise HTTPException(400, "question is required")
+    schema = workspace.load_json("schema.json") or {}
+    model = workspace.load_json("model_metrics.json") or {}
+    ctx = collect_context(workspace, schema, model)
+
+    # LLM 优先：把分析产物 + 现有报告一起给模型，让它基于数据回答
+    llm = None
+    reason = None
+    reason_code = None
+    try:
+        llm = LLMClient(**(dict(_LLM_OVERRIDE or {})))
+    except Exception:  # noqa: BLE001 无可用配置则走规则，并向前端说明原因
+        reason = ("当前未配置可用的 LLM（缺少或无效的 API Key / Base URL / 模型名），"
+                  "本次已回退为本地规则应答。解决办法：点击右上角「LLM 配置」填写有效配置，或检查服务端 .env。")
+        reason_code = "no_llm"
+    used_llm = False
+    if llm is not None:
+        report_txt = ""
+        p = root / "report.md"
+        if p.exists():
+            report_txt = p.read_text(encoding="utf-8")[:1500]
+        from code.workbench.csv_agent.servers.report_generator import _ctx_preview
+        prompt = (
+            "你是这份 CSV 数据分析结果的解答助手。请依据下面的数据分析产物与报告，"
+            "用简洁中文回答用户问题；若产物不足以回答，请明确说明缺少哪方面数据。不要编造数值。\n"
+            f"分析产物：\n{_ctx_preview(ctx)}\n"
+            f"已生成报告：\n{report_txt}\n"
+            f"用户问题：{question}"
+        )
+        try:
+            msg = llm.chat_completion([{"role": "user", "content": prompt}], temperature=0.2)
+            content = (getattr(msg, "content", "") or "").strip()
+            if len(content) >= 10:
+                used_llm = True
+                return _clean({"success": True, "answer": content, "used_llm": True,
+                               "reason": None, "reason_code": None})
+        except Exception as e:  # noqa: BLE001 LLM 调用失败回退规则，并向前端说明原因
+            detail = str(e)[:180]
+            reason = (f"LLM 调用失败：{detail}。已回退为本地规则应答。"
+                      "解决办法：检查 API 配额/余额是否充足（如 429），或更换 Base URL / 模型后再次提问。")
+            reason_code = "llm_error"
+    answer = _rule_chat_answer(question, ctx)
+    return _clean({"success": True, "answer": answer, "used_llm": used_llm,
+                   "reason": reason, "reason_code": reason_code})
 
 
 @app.get("/api/run/{rid}/charts")
