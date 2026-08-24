@@ -5,13 +5,14 @@ from code.workbench.csv_agent.bridge import build_tool_registry, connect_mcp_ser
 def test_build_tool_registry_contains_all_tools():
     reg = build_tool_registry()
     names = {t["name"] for t in reg.list_tools()}
-    assert {"csv_load","data_summary","data_clean","feature_engineer","eda_plot","model_suggest","model_train","report_generate",
-            "corr_analysis","hypo_test","regression_fit","time_series_feat","cluster_profile","anomaly_detect",
-            "nl_filter","nl_insight"} <= names
+    assert {"csv_load","data_summary","data_clean","feature_engineer","eda_plot","model_suggest","model_train",
+            "model_classify","report_generate","corr_analysis","hypo_test","regression_fit","time_series_feat",
+            "cluster_profile","anomaly_detect","dist_fit","pca_decompose","nl_filter","nl_agg","nl_insight",
+            "data_quality"} <= names
     assert reg.find_tool("加载 CSV") is not None
 
 def test_connect_mcp_servers_discovers_tools():
     client = connect_mcp_servers()
     tools = client.list_all_tools()
-    assert len(tools) == 16
+    assert len(tools) == 21
     assert {t["name"] for t in tools} >= {"csv_load","report_generate","nl_filter","corr_analysis"}

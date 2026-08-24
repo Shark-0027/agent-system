@@ -269,6 +269,89 @@ def anomaly_detect(ws, params):
     return {"success": True, **out, "meta_file": meta}
 
 
+def dist_fit(ws, params):
+    try:
+        from scipy import stats as ss
+    except ImportError:
+        return {"success": False, "error": "scipy required for dist_fit"}
+    df = _load_df(ws)
+    if df is None:
+        return {"success": False, "error": "no csv available"}
+    cols = _num_cols(df)
+    col = params.get("col") or (cols[0] if cols else "")
+    if col not in df.columns:
+        return {"success": False, "error": f"column not found: {col}"}
+    vals = pd.to_numeric(df[col], errors="coerce").dropna()
+    vals = vals[vals > 0] if params.get("positive_only") else vals
+    if len(vals) < 20:
+        return {"success": False, "error": "need >=20 numeric samples"}
+    v = vals.values
+    results = []
+    # 皮尔逊相关系数作为分布贴合度的粗略代理（正态）
+    from scipy.stats import probplot
+    _ = probplot(v, dist="norm")
+    candidates = [("normal", "norm"), ("lognormal", "lognorm"), ("exponential", "expon")]
+    best = None
+    for name, dist in candidates:
+        try:
+            fitted = getattr(ss, dist).fit(v)
+            pval = ss.kstest(v, dist, args=fitted).pvalue
+            entry = {"dist": name, "p_value": _clean_res(float(pval)),
+                     "ks_statistic": _clean_res(float(ss.kstest(v, dist, args=fitted).statistic)),
+                     "params": _clean_res([float(x) for x in fitted])}
+            results.append(entry)
+            if best is None or pval > best["p_value"]:
+                best = entry
+        except Exception:  # noqa: BLE001 某些分布拟合失败时跳过
+            continue
+    results.sort(key=lambda r: r["p_value"], reverse=True)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    n, bins, _ = ax.hist(v, bins=30, density=True, alpha=0.6, color="#4c8bf5", edgecolor="white")
+    xs = np.linspace(v.min(), v.max(), 300)
+    _DIST_FUNC = {"normal": "norm", "lognormal": "lognorm", "exponential": "expon"}
+    fitted = getattr(ss, _DIST_FUNC[results[0]["dist"]])
+    pdf = fitted.pdf(xs, *results[0]["params"])
+    ax.plot(xs, pdf, color="#e5532f", lw=2)
+    ax.set_title(f"{col} 分布拟合 (最优: {results[0]['dist']})")
+    fig.tight_layout()
+    img = ws.charts_dir / "dist_fit.png"
+    fig.savefig(img, dpi=90); plt.close(fig)
+    out = {"col": col, "results": results, "best": results[0]["dist"],
+           "chart": img.name}
+    meta = ws.save_json(out, "stats_distfit.json")
+    return {"success": True, **out, "meta_file": meta}
+
+
+def pca_decompose(ws, params):
+    from sklearn.decomposition import PCA
+    df = _load_df(ws)
+    if df is None:
+        return {"success": False, "error": "no csv available"}
+    cols = _num_cols(df)
+    if len(cols) < 2:
+        return {"success": False, "error": "need >=2 numeric columns"}
+    sub = df[cols].apply(pd.to_numeric, errors="coerce").dropna()
+    X = (sub - sub.mean()) / sub.std().replace(0, 1)
+    n_comp = min(len(cols), int(params.get("n_components", 2)))
+    pca = PCA(n_components=n_comp).fit(X)
+    exp = pca.explained_variance_ratio_
+    scores = pca.transform(X)
+    loadings = {cols[i]: _clean_res([float(x) for x in pca.components_[:, i]]) for i in range(len(cols))}
+    out = {"n_components": n_comp, "explained_variance_ratio": _clean_res(list(exp)),
+           "cumulative": _clean_res(float(exp.cumsum()[-1])), "loadings": loadings, "used_cols": cols}
+    if n_comp >= 2:
+        fig, ax = plt.subplots(figsize=(6, 5))
+        ax.scatter(scores[:, 0], scores[:, 1], s=18, alpha=0.6, color="#4c8bf5")
+        ax.set_xlabel(f"PC1 ({exp[0]:.0%})"); ax.set_ylabel(f"PC2 ({exp[1]:.0%})")
+        ax.set_title("主成分投影")
+        fig.tight_layout()
+        img = ws.charts_dir / "pca.png"
+        fig.savefig(img, dpi=90); plt.close(fig)
+        out["chart"] = img.name
+    meta = ws.save_json(out, "stats_pca.json")
+    return {"success": True, **out, "meta_file": meta}
+
+
 class StatisticsServer(MCPServer):
     def __init__(self):
         super().__init__(name="statistics", description="深度统计分析")
@@ -279,6 +362,8 @@ class StatisticsServer(MCPServer):
             ("time_series_feat", "时间序列趋势/波动特征与曲线图", ["ws", "date", "col"]),
             ("cluster_profile", "K 均值聚类与簇画像", ["ws", "k"]),
             ("anomaly_detect", "Z-score 离群点识别", ["ws", "col", "threshold"]),
+            ("dist_fit", "概率分布拟合(正态/对数正态/指数)与 KS 检验", ["ws", "col", "positive_only"]),
+            ("pca_decompose", "主成分降维、载荷与方差解释", ["ws", "n_components"]),
         ]
         for name, desc, props in t:
             prop_schema = {"type": "object",

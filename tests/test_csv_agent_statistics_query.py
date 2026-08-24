@@ -4,8 +4,11 @@ import matplotlib
 matplotlib.use("Agg")
 from code.workbench.csv_agent.workspace import Workspace
 from code.workbench.csv_agent.servers.statistics import (
-    corr_analysis, hypo_test, regression_fit, time_series_feat, cluster_profile, anomaly_detect)
-from code.workbench.csv_agent.servers.query import nl_filter, nl_insight, QueryServer
+    corr_analysis, hypo_test, regression_fit, time_series_feat, cluster_profile, anomaly_detect,
+    dist_fit, pca_decompose)
+from code.workbench.csv_agent.servers.query import nl_filter, nl_insight, nl_agg, QueryServer
+from code.workbench.csv_agent.servers.data_processor import data_quality
+from code.workbench.csv_agent.servers.model_trainer import model_classify
 from code.workbench.csv_agent.datagen import gen_sales
 
 
@@ -82,3 +85,45 @@ def test_query_server_registers_llm_config():
     names = [s.name for s in server.tools]
     assert "nl_filter" in names
     assert "nl_insight" in names
+    assert "nl_agg" in names
+
+
+def test_dist_fit_normal():
+    ws = _mkws()
+    out = dist_fit(ws, {"ws": str(ws.root), "col": "sales"})
+    assert out["success"] is True
+    assert out["best"] in ("normal", "lognormal", "exponential")
+    assert (ws.charts_dir / "dist_fit.png").exists()
+
+
+def test_pca_decompose():
+    ws = _mkws()
+    out = pca_decompose(ws, {"ws": str(ws.root), "n_components": 2})
+    assert out["success"] is True
+    assert out["explained_variance_ratio"]
+    assert out["cumulative"] is not None
+    assert (ws.charts_dir / "pca.png").exists()
+
+
+def test_nl_agg_grouping():
+    ws = _mkws()
+    out = nl_agg(ws, {"ws": str(ws.root), "question": "按地区汇总销售额"}, llm=None)
+    assert out["success"] is True
+    assert out["agg"] in ("sum", "mean", "count")
+    assert out["rows"]
+
+
+def test_data_quality_report():
+    ws = _mkws()
+    out = data_quality(ws, {"ws": str(ws.root)})
+    assert out["success"] is True
+    assert "score" in out
+    assert "issues" in out
+
+
+def test_model_classify_categorical():
+    ws = _mkws(n=200)
+    out = model_classify(ws, {"ws": str(ws.root), "target": "region"})
+    assert out["success"] is True
+    assert "accuracy" in out["metrics"]
+    assert (ws.charts_dir / "confusion.png").exists()

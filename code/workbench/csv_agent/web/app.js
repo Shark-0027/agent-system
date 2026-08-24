@@ -7,7 +7,11 @@
   const TOOL_LABEL = {
     csv_load: "加载数据", data_summary: "数据概览", data_clean: "数据清洗",
     feature_engineer: "特征工程", eda_plot: "可视化", model_suggest: "模型建议",
-    model_train: "模型训练", report_generate: "生成报告",
+    model_train: "模型训练", model_classify: "模型分类", report_generate: "生成报告",
+    corr_analysis: "相关性热图", hypo_test: "假设检验", regression_fit: "回归拟合",
+    time_series_feat: "时间序列", cluster_profile: "聚类分析", anomaly_detect: "离群点检测",
+    dist_fit: "分布拟合", pca_decompose: "主成分分析", data_quality: "数据质量体检",
+    nl_filter: "智能查数", nl_agg: "分组聚合", nl_insight: "智能洞察",
   };
 
   function toast(msg, isErr = false) {
@@ -307,9 +311,12 @@
       ["下载报告 (.md)", "report.md"],
       ["下载清洗后数据 (cleaned.csv)", "cleaned.csv"],
       ["下载原始数据 (input.csv)", "input.csv"],
+      ["打包全部产物 (.zip)", `bundle`],
     ];
     $("#tab-download").innerHTML = `<div class="dl-list">` + items
-      .map(([label, name]) => `<a href="${base}${name}" download>${label}</a>`)
+      .map(([label, name]) => name === "bundle"
+        ? `<a href="/api/run/${id}/bundle" download>${label}</a>`
+        : `<a href="${base}${name}" download>${label}</a>`)
       .join("") + `</div>`;
   }
 
@@ -348,6 +355,9 @@
     const params = {};
     if (name === "eda_plot") params.kind = "all";
     if (name === "data_clean") params.fill = "median";
+    if (name === "nl_filter") params.question = "销售额最高的前10条";
+    if (name === "nl_agg") params.question = "按地区汇总销售额";
+    if (name === "nl_insight") params.question = "整体销售额表现如何";
     btn.disabled = true;
     btn.classList.add("off");
     const out = $("#toolResult");

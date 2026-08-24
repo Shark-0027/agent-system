@@ -165,6 +165,54 @@ def nl_insight(ws, params, llm=None):
             "meta_file": str(ws.root / "query_insight.json")}
 
 
+def nl_agg(ws, params, llm=None):
+    """自然语言分组聚合：按类目分组，对数值列做 sum/mean/count。"""
+    question = params.get("question", "").strip()
+    if not question:
+        return {"success": False, "error": "question is required"}
+    df = _load_df(ws)
+    if df is None:
+        return {"success": False, "error": "no csv available"}
+    obj_cols = [c for c in df.columns if c not in list(df.select_dtypes(include="number").columns)]
+    num_cols = list(df.select_dtypes(include="number").columns)
+    if not obj_cols or not num_cols:
+        return {"success": False, "error": "need both a categorical and a numeric column"}
+    group = params.get("group") or obj_cols[0]
+    metric = params.get("metric") or num_cols[0]
+    agg = params.get("agg") or "sum"
+    used_llm = False
+    if llm is not None:
+        prompt = (
+            "你是 CSV 数据分析助手。仅输出 JSON，不要多余文字。\n"
+            f"类目列:{obj_cols} 数值列:{num_cols}。聚合方式可选: sum|mean|count。\n"
+            "输出格式:{\"group\":\"类目列名\",\"metric\":\"数值列名或空\",\"agg\":\"sum|mean|count\"}\n"
+            f"问题：{question}"
+        )
+        try:
+            msg = llm.chat_completion([{"role": "user", "content": prompt}], temperature=0.0)
+            parsed = _parse_json(getattr(msg, "content", "") or "")
+            if parsed.get("group") in df.columns:
+                group = parsed["group"]
+                if parsed.get("metric") in df.columns:
+                    metric = parsed["metric"]
+                if parsed.get("agg") in ("sum", "mean", "count"):
+                    agg = parsed["agg"]
+                used_llm = True
+        except Exception:
+            pass
+    sub = df[[group] + ([metric] if metric and metric in df.columns else [])].dropna()
+    if agg == "count":
+        out = sub.groupby(group).size().reset_index(name="count")
+    else:
+        out = sub.groupby(group)[metric].agg(agg).reset_index()
+    rows = out.astype(object).where(pd.notnull(out), None).to_dict(orient="records")
+    res = {"group": group, "metric": metric, "agg": agg, "used_llm": used_llm,
+           "rows": rows if len(rows) <= 50 else rows[:50]}
+    ws.save_json({"question": question, "result": res}, "query_agg.json")
+    res["meta_file"] = str(ws.root / "query_agg.json")
+    return {"success": True, **res}
+
+
 class QueryServer(MCPServer):
     def __init__(self, llm_config: Optional[Dict[str, Any]] = None):
         super().__init__(name="query", description="自然语言查数与其他分析")
@@ -178,12 +226,22 @@ class QueryServer(MCPServer):
             llm = self._llm
             return lambda **kw: nl_insight(_resolve_ws(kw), kw, llm)
 
+        def make_agg_handler():
+            llm = self._llm
+            return lambda **kw: nl_agg(_resolve_ws(kw), kw, llm)
+
         self.register_tool(
             schema=ToolSchema(name="nl_filter",
                 description="把自然语言问题转成筛选/排序/限量条件并返回命中数据",
                 parameters={"type": "object",
                             "properties": {"ws": {"type": "string"}, "question": {"type": "string"}}}),
             handler=make_filter_handler())
+        self.register_tool(
+            schema=ToolSchema(name="nl_agg",
+                description="自然语言分组聚合：按类目分组对数值列 sum/mean/count",
+                parameters={"type": "object",
+                            "properties": {"ws": {"type": "string"}, "question": {"type": "string"}}}),
+            handler=make_agg_handler())
         self.register_tool(
             schema=ToolSchema(name="nl_insight",
                 description="基于数据概览与统计产物生成洞察要点",

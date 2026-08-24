@@ -402,6 +402,24 @@ def run_download(rid: str, name: str = Query(...)):
     return FileResponse(str(p), filename=name)
 
 
+@app.get("/api/run/{rid}/bundle")
+def run_bundle(rid: str):
+    """打包运行的全部产物为 Zip（报告/CSV/JSON/图表）。"""
+    import zipfile
+    root = _run_root(rid)
+    buf = io.BytesIO()
+    files = sorted(f for f in root.rglob("*") if f.is_file())
+    if not files:
+        raise HTTPException(404, "no artifacts to bundle")
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            zf.write(f, f.relative_to(root).as_posix())
+    buf.seek(0)
+    name = f"{rid}_artifacts.zip"
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 # ---------------------------------------------------------------------------
 # 历史与偏好（Agent Memory）
 # ---------------------------------------------------------------------------
