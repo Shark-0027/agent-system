@@ -170,6 +170,45 @@ body {
 .dropzone .title { font-weight: 600; color: var(--ink-900); margin-bottom: 6px; }
 .dropzone .hint { font-size: 12px; color: var(--ink-300); }
 .dropzone input { display: none; }
+.dropzone.filled {
+  border-color: var(--success);
+  background: #eafaf1;
+  border-style: solid;
+  animation: dropPulse .55s ease;
+}
+.dropzone.filled .icon { color: var(--success); }
+.dropzone.filled .title { color: var(--success); }
+@keyframes dropPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.015); box-shadow: 0 0 0 6px rgba(39,174,96,.12); }
+  100% { transform: scale(1); }
+}
+.icon-btn-sm {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--ink-100); background: var(--surface);
+  color: var(--ink-500); font-size: 14px; font-weight: 700;
+  display: inline-grid; place-items: center;
+  cursor: pointer; padding: 0; line-height: 1;
+  transition: all .15s ease;
+}
+.icon-btn-sm:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-50); }
+
+.file-selected {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, #eafaf1, #f2fbf5);
+  border: 1px solid #b7e5c7;
+  border-radius: var(--radius-sm);
+}
+.file-selected .fs-icon { font-size: 18px; }
+.file-selected .fs-name { font-weight: 600; color: var(--ink-900); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.file-selected .fs-size { flex: 1; }
+.file-selected .fs-badge {
+  background: var(--success); color: #fff;
+  font-size: 11px; font-weight: 600; padding: 3px 8px;
+  border-radius: var(--radius-pill);
+}
+.flow-actions { display: flex; gap: 12px; margin-top: 8px; align-items: center; }
 
 /* Hero 右侧卡片堆 */
 .hero-visual { position: relative; min-height: 360px; }
@@ -358,7 +397,6 @@ table.data tr:nth-child(even) { background: #FAFBFE; }
   width: 100%; padding: 10px 12px; border: 1px solid var(--ink-100); border-radius: var(--radius-sm); font: inherit;
 }
 .field-group textarea { min-height: 80px; resize: vertical; }
-.flow-actions { display: flex; gap: 12px; margin-top: 8px; }
 
 .progress-card { margin-top: 20px; padding: 22px; }
 .progress-steps { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
@@ -394,6 +432,24 @@ table.data tr:nth-child(even) { background: #FAFBFE; }
 .modal .field { margin-bottom: 14px; }
 .modal .field span { display: block; font-size: 12px; font-weight: 600; color: var(--ink-700); margin-bottom: 5px; }
 .modal .field input { width: 100%; padding: 9px 11px; border: 1px solid var(--ink-100); border-radius: var(--radius-sm); font: inherit; }
+
+/* 使用引导弹窗 */
+.help-modal { width: min(560px, 94vw); }
+.help-modal .help-section { margin-bottom: 18px; }
+.help-modal .help-section h4 { margin: 0 0 8px; font-size: 14px; color: var(--ink-900); }
+.help-modal .help-section ul { margin: 0; padding-left: 20px; color: var(--ink-700); font-size: 13px; line-height: 1.7; }
+.help-modal .help-section pre {
+  background: var(--bg); border: 1px solid var(--ink-100); border-radius: 6px;
+  padding: 10px 12px; font-family: var(--font-mono); font-size: 12px;
+  color: var(--ink-700); margin-top: 8px; overflow-x: auto;
+}
+.help-modal .help-cases { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.help-modal .help-cases .hc {
+  background: var(--bg); border: 1px solid var(--ink-100); border-radius: 6px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; font-size: 12px;
+}
+.help-modal .help-cases .hc b { color: var(--ink-900); font-size: 13px; }
+.help-modal .help-cases .hc span { color: var(--ink-500); }
 
 /* Toast */
 #toast {

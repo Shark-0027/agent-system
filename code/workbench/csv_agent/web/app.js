@@ -647,7 +647,9 @@
     });
     input.addEventListener("change", () => { if (input.files[0]) setFlowFile(input.files[0]); });
 
-    $("#flowSampleBtn").addEventListener("click", startFlowWithSample);
+    $("#flowHelpBtn").addEventListener("click", openHelpModal);
+    $("#helpCloseBtn").addEventListener("click", closeHelpModal);
+    $("#helpModal").addEventListener("click", (e) => { if (e.target.id === "helpModal") closeHelpModal(); });
     $("#flowStartBtn").addEventListener("click", startFlow);
 
     // 目标模板 chips：点击即填入分析目标
@@ -680,9 +682,29 @@
     } catch (e) { /* 建议拉取失败不影响分析主流程 */ }
   }
 
+  function formatBytes(b) {
+    if (!b) return "0 B";
+    const k = 1024, s = ["B","KB","MB","GB"];
+    const i = Math.min(s.length - 1, Math.floor(Math.log(b) / Math.log(k)));
+    return (b / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1) + " " + s[i];
+  }
+
+  function openHelpModal() { $("#helpModal").classList.add("show"); }
+  function closeHelpModal() { $("#helpModal").classList.remove("show"); }
+
   function setFlowFile(file) {
     state.flowFile = file;
-    $("#flowFileName").textContent = file.name;
+    const dz = $("#flowDropzone");
+    // 重置动画（每次选择文件都有一次高亮脉冲）
+    dz.classList.remove("filled");
+    void dz.offsetWidth;
+    dz.classList.add("filled");
+    // 更新上传后醒目的文件展示条
+    const bar = $("#flowFileName");
+    bar.style.display = "flex";
+    bar.querySelector(".fs-name").textContent = file.name;
+    bar.querySelector(".fs-size").textContent = formatBytes(file.size || 0);
+    $("#flowFileNameHint").style.display = "none";
   }
 
   async function startFlowWithSample() {

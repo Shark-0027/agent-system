@@ -155,7 +155,13 @@
             <div class="hint">支持 .csv 格式，最大 200MB</div>
             <input type="file" id="flowFile" accept=".csv,text/csv">
           </div>
-          <div class="small muted" id="flowFileName" style="margin-top:8px">未选择文件</div>
+          <div id="flowFileName" class="file-selected" style="display:none;margin-top:10px">
+            <span class="fs-icon">📄</span>
+            <span class="fs-name">—</span>
+            <span class="fs-size muted small">—</span>
+            <span class="fs-badge">已选择</span>
+          </div>
+          <div class="small muted" id="flowFileNameHint" style="margin-top:8px">未选择文件</div>
         </div>
         <div class="field-group">
           <label>分析目标 <span class="muted small">（可选，不填将自动进行综合探索分析）</span></label>
@@ -173,7 +179,7 @@
         </div>
         <div class="flow-actions">
           <button class="btn btn-primary btn-lg" id="flowStartBtn">开始分析</button>
-          <button class="btn btn-outline" id="flowSampleBtn">使用样例数据</button>
+          <button class="icon-btn-sm" id="flowHelpBtn" title="使用引导" aria-label="使用引导">?</button>
         </div>
       </div>
 
@@ -203,6 +209,45 @@
 
   <div id="toast"></div>
 
+  <!-- 使用引导弹窗 -->
+  <div class="modal-mask" id="helpModal">
+    <div class="modal help-modal">
+      <h3>全流程分析 · 使用引导</h3>
+      <div class="help-section">
+        <h4>① 准备你的 CSV 数据</h4>
+        <ul>
+          <li>第一行必须是<strong>列名</strong>（表头），不要有合并单元格或多级标题</li>
+          <li>每一列保持同一种类型：数字列纯数值；日期列格式统一；文本列不需要额外引号</li>
+          <li>编码推荐 UTF-8；文件大小 ≤ 200MB</li>
+        </ul>
+        <pre>date,region,product,sales,quantity
+2024-01-05,华东,笔记本,7899.00,2
+2024-01-06,华南,手机,4299.00,3
+2024-01-07,华北,笔记本,7899.00,1</pre>
+      </div>
+      <div class="help-section">
+        <h4>② 填写分析目标（可选）</h4>
+        <ul>
+          <li>好的目标包含<strong>对象 + 问题</strong>：例如「按地区汇总销售额，识别增长最快的区域」</li>
+          <li>留空则系统会做一次综合探索分析（清洗 → 可视化 → 报告）</li>
+          <li>也可以直接点下面的 4 个模板 chips（趋势 / 异常 / 建模 / 综合）</li>
+        </ul>
+      </div>
+      <div class="help-section">
+        <h4>③ 典型场景举例</h4>
+        <div class="help-cases">
+          <div class="hc"><b>📈 销售数据</b><span>趋势 + 地区/品类对比 + 异常月份</span></div>
+          <div class="hc"><b>🏥 医疗数据</b><span>关键指标分布 + 异常值 + 因素相关</span></div>
+          <div class="hc"><b>🏭 工业传感器</b><span>时间序列趋势 + 异常检测 + 分布拟合</span></div>
+          <div class="hc"><b>🎓 问卷/调研</b><span>交叉汇总 + 相关分析 + 分组建模</span></div>
+        </div>
+      </div>
+      <div class="flex gap-12" style="justify-content:flex-end;margin-top:4px">
+        <button class="btn btn-primary" id="helpCloseBtn">知道了</button>
+      </div>
+    </div>
+  </div>
+
   <!-- LLM 配置弹窗 -->
   <div class="modal-mask" id="llmModal">
     <div class="modal">
@@ -223,6 +268,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=10"></script>
+  <script src="/web/app.js?v=11"></script>
 </body>
 </html>
