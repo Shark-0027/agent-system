@@ -1,16 +1,7 @@
-/* AI 数据分析 Agent 工作台前端逻辑（多视图 SPA） */
+/* AI 数据分析 Agent 工作台前端逻辑（单页 SPA：idle / running / done） */
 (() => {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
-
-  const state = {
-    runId: "",
-    runs: [],
-    tools: [],
-    stage: "idle",
-    flowRunId: "",
-    chat: {},
-  };
 
   const TOOL_LABEL = {
     csv_load: "加载数据", data_summary: "数据概览", data_clean: "数据清洗",
@@ -41,7 +32,7 @@
     visual: "可视化", model: "建模", report: "报告", nl: "自然语言", hygiene: "质量体检",
   };
 
-  // 工具参数配置表：声明每个工具支持的参数及 UI 类型
+  // 工具参数配置表
   const TOOL_PARAMS = {
     data_clean: [
       { key: "fill", label: "缺失填充", type: "select", options: ["median", "mean"], default: "median" },
@@ -120,6 +111,17 @@
     ],
   };
 
+  // 会修改数据文件的工具
+  const DATA_MUTATORS = ["data_clean", "feature_engineer"];
+
+  const state = {
+    runId: "",
+    runs: [],
+    tools: [],
+    stage: "idle",
+    chat: {},
+  };
+
   function toast(msg, isErr = false) {
     const t = $("#toast");
     t.textContent = msg;
@@ -142,6 +144,18 @@
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
+  function formatBytes(b) {
+    if (!b) return "0 B";
+    const k = 1024, s = ["B","KB","MB","GB"];
+    const i = Math.min(s.length - 1, Math.floor(Math.log(b) / Math.log(k)));
+    return (b / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1) + " " + s[i];
+  }
+
+  function openHelpModal() { $("#helpModal").classList.add("show"); }
+  function closeHelpModal() { $("#helpModal").classList.remove("show"); }
+
+  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
   /* ---- 单页状态机 ---- */
   // stage: "idle" | "running" | "done"
   function setStage(stage) {
@@ -163,7 +177,8 @@
     bindApp();
     bindLlmConfig();
     bindHealth();
-    await Promise.all([loadTools(), loadRuns(), loadHistory()]);
+    bindHelpModal();
+    await Promise.all([loadTools(), loadRuns()]);
     renderSidebarRuns();
     setStage("idle");
   }
@@ -174,11 +189,15 @@
       $("#sidebar").classList.toggle("open");
     });
     $("#newRunBtn").addEventListener("click", () => {
-      state.flowRunId = null;
       state.runId = null;
       _idleFile = null;
       setStage("idle");
     });
+  }
+
+  function bindHelpModal() {
+    $("#helpCloseBtn").addEventListener("click", closeHelpModal);
+    $("#helpModal").addEventListener("click", (e) => { if (e.target.id === "helpModal") closeHelpModal(); });
   }
 
   /* ---- idle 态：上传 + 目标输入 ---- */
@@ -223,7 +242,6 @@
         <p class="idle-note muted small">Agent 会自动：规划任务 DAG → 执行清洗/统计/建模 → 生成报告</p>
       </div>
     `;
-    // 绑定事件
     const dz = $("#idleDropzone");
     const input = $("#idleFile");
     dz.addEventListener("click", () => input.click());
@@ -260,7 +278,6 @@
     fd.append("title", `分析：${(goal || "综合探索").slice(0, 20)}`);
     try {
       const r = await fetch("/api/run", { method: "POST", body: fd }).then((r) => r.json());
-      state.flowRunId = r.run_id;
       state.runId = r.run_id;
       setStage("running");
       const analyzeFd = new FormData();
@@ -298,7 +315,7 @@
   }
 
   async function pollRunning() {
-    const id = state.flowRunId;
+    const id = state.runId;
     if (!id) return;
     try {
       const st = await api(`/api/run/${id}/progress`);
@@ -340,38 +357,50 @@
     } catch (e) { /* 忽略中途更新错误 */ }
   }
 
-  /* ---- done 态：报告 + 答疑 + 次级 tab ---- */
+  /* ---- done 态：报告 + 答疑 + 5 tab + 高级面板 ---- */
   async function renderDone(box) {
-    const id = state.flowRunId || state.runId;
+    const id = state.runId;
     if (!id) { setStage("idle"); return; }
     box.innerHTML = `
       <div class="done-header">
         <h2>分析完成</h2>
-        <button class="btn btn-outline btn-sm" id="doneNewBtn">+ 新建分析</button>
+        <div class="flex gap-8">
+          <button class="btn btn-outline btn-sm" id="doneDownloadBtn">⬇ 下载</button>
+          <button class="btn btn-outline btn-sm" id="doneNewBtn">+ 新建分析</button>
+        </div>
       </div>
       <div class="done-tabs">
         <button class="done-tab active" data-dtab="report">报告 &amp; 答疑</button>
         <button class="done-tab" data-dtab="charts">图表</button>
-        <button class="done-tab" data-dtab="trace">执行轨迹</button>
         <button class="done-tab" data-dtab="data">数据预览</button>
+        <button class="done-tab" data-dtab="trace">执行轨迹</button>
+        <button class="done-tab" data-dtab="download">下载</button>
+        <button class="done-tab done-tab-adv" data-dtab="advanced">▸ 高级</button>
       </div>
       <div class="done-body" id="doneBody"><p class="muted">加载中…</p></div>
+      <div class="goal-suggest" id="goalSuggest" style="display:none"></div>
     `;
     $("#doneNewBtn").addEventListener("click", () => {
-      state.flowRunId = null; state.runId = null; _idleFile = null;
+      state.runId = null; _idleFile = null;
       setStage("idle");
+    });
+    $("#doneDownloadBtn").addEventListener("click", () => {
+      $$(".done-tab").forEach((x) => x.classList.remove("active"));
+      document.querySelector('.done-tab[data-dtab="download"]').classList.add("active");
+      renderDoneTab("download");
     });
     $$(".done-tab").forEach((t) => t.addEventListener("click", () => {
       $$(".done-tab").forEach((x) => x.classList.remove("active"));
       t.classList.add("active");
       renderDoneTab(t.dataset.dtab);
     }));
+    loadGoalSuggest(id);
     renderDoneTab("report");
   }
 
   async function renderDoneTab(tab) {
     const box = $("#doneBody");
-    const id = state.flowRunId || state.runId;
+    const id = state.runId;
     if (!box || !id) return;
     if (tab === "report") {
       try {
@@ -413,7 +442,99 @@
         html += `<p class="small muted" style="margin-top:10px">共 ${d.rows} 行 × ${d.cols} 列，预览前 10 行</p>`;
         box.innerHTML = html;
       } catch (e) { box.innerHTML = `<p class="muted">加载失败</p>`; }
+    } else if (tab === "download") {
+      try {
+        const info = await api(`/api/run/${id}/charts`);
+        const charts = (info.charts || []).map((c) =>
+          `<a class="download-item" href="/api/run/${id}/chart?name=${c}" download="${c}"><span>📊</span><span>${esc(c)}</span><span class="muted small">下载</span></a>`
+        ).join("");
+        box.innerHTML = `
+          <h3 class="download-title">下载产物</h3>
+          <div class="download-list">
+            <a class="download-item" href="/api/report/${id}" download="report.md"><span>📝</span><span>分析报告 (Markdown)</span><span class="muted small">下载</span></a>
+            <a class="download-item" href="/api/run/${id}/data?which=cleaned" download="cleaned.csv"><span>📄</span><span>清洗后数据 (CSV)</span><span class="muted small">下载</span></a>
+            ${charts || '<div class="muted small" style="margin:8px 0">无图表</div>'}
+            <a class="download-item" href="/api/run/${id}/data?which=input" download="input.csv"><span>📥</span><span>原始数据 (CSV)</span><span class="muted small">下载</span></a>
+          </div>
+        `;
+      } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
+    } else if (tab === "advanced") {
+      box.innerHTML = `
+        <div class="adv-panel">
+          <div class="adv-section">
+            <h3>🛠 工具箱</h3>
+            <p class="muted small">手动选择工具对当前运行的数据执行额外分析。</p>
+            <div class="adv-tool-grid" id="advTools"></div>
+            <div id="advToolResult" style="margin-top:12px"></div>
+          </div>
+          <div class="adv-section">
+            <h3>💬 自然语言查数</h3>
+            <p class="muted small">输入问题，调用智能查数/聚合/洞察。</p>
+            <div class="field-group" style="margin-bottom:10px">
+              <input class="run-search" id="advNlQuestion" placeholder="例如：按品类汇总销售额 Top5">
+            </div>
+            <div class="flex gap-8" style="margin-bottom:12px">
+              <button class="btn btn-sm btn-primary" id="advNlFilterBtn">智能查数</button>
+              <button class="btn btn-sm" id="advNlAggBtn">分组聚合</button>
+              <button class="btn btn-sm" id="advNlInsightBtn">智能洞察</button>
+            </div>
+            <div id="advNlResult" class="small" style="white-space:pre-wrap;font-family:var(--font-mono)"></div>
+          </div>
+        </div>
+      `;
+      const grid = $("#advTools");
+      state.tools.forEach((t) => {
+        const btn = document.createElement("button");
+        btn.className = "tool-btn";
+        btn.innerHTML = `<span class="t-name">${esc(TOOL_LABEL[t.name] || t.name)}</span><span class="t-desc">${esc(t.description || "")}</span>`;
+        btn.addEventListener("click", () => runToolAdvanced(t.name, btn));
+        grid.appendChild(btn);
+      });
+      $("#advNlFilterBtn").addEventListener("click", () => runNLAdvanced("nl_filter"));
+      $("#advNlAggBtn").addEventListener("click", () => runNLAdvanced("nl_agg"));
+      $("#advNlInsightBtn").addEventListener("click", () => runNLAdvanced("nl_insight"));
     }
+  }
+
+  async function runToolAdvanced(name, btn) {
+    const id = state.runId;
+    if (!id) { toast("未选择运行", true); return; }
+    const out = $("#advToolResult");
+    if (!out) return;
+    out.innerHTML = `<p class="muted small">执行 ${esc(name)} 中…</p>`;
+    btn?.classList.add("running");
+    toast(`执行 ${TOOL_LABEL[name] || name} …`);
+    try {
+      const params = {};
+      if (name === "eda_plot") params.kind = "all";
+      if (name === "data_clean") params.fill = "median";
+      const r = await api(`/api/run/${id}/tool`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: name, params }),
+      });
+      toast(r.success !== false ? "执行完成" : "执行失败", r.success === false);
+      loadRuns().catch(() => {});
+      renderToolResult(r, name, out);
+    } catch (e) {
+      out.innerHTML = `<p class="muted err">执行失败：${esc(e.message)}</p>`;
+    } finally { btn?.classList.remove("running"); }
+  }
+
+  async function runNLAdvanced(tool) {
+    const id = state.runId;
+    if (!id) { toast("未选择运行", true); return; }
+    const q = ($("#advNlQuestion")?.value || "").trim();
+    if (!q) { toast("请输入问题", true); return; }
+    const out = $("#advNlResult");
+    if (!out) return;
+    out.textContent = "思考中…";
+    try {
+      const r = await api(`/api/run/${id}/tool`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool, params: { question: q } }),
+      });
+      out.textContent = typeof r === "string" ? r : JSON.stringify(r, null, 2);
+    } catch (e) { out.textContent = `失败：${e.message}`; }
   }
 
   /* ---- 健康检查 + 运行模式 ---- */
@@ -504,111 +625,6 @@
     });
   }
 
-  /* ---- 首页 ---- */
-  function bindHome() {
-    $("#homeUploadBtn").addEventListener("click", () => showView("flow"));
-    $("#homeWorkbenchBtn").addEventListener("click", () => showView("workbench"));
-    // 交互演示步骤
-    $$("#homeWorkflowSteps .wf-step").forEach((step) => {
-      step.addEventListener("click", () => openWfDemo(step.dataset.step));
-    });
-    $("#wfDemoClose").addEventListener("click", closeWfDemo);
-  }
-
-  // 首页演示数据缓存
-  let _homeDemoCache = null;
-  async function loadHomeDemo() {
-    if (_homeDemoCache) return _homeDemoCache;
-    try {
-      _homeDemoCache = await api("/api/demo/flow");
-    } catch (e) {
-      _homeDemoCache = null;
-    }
-    return _homeDemoCache;
-  }
-
-  async function openWfDemo(step) {
-    const demo = await loadHomeDemo();
-    if (!demo) { toast("演示数据加载失败", true); return; }
-    const panel = $("#wfDemoPanel");
-    const title = $("#wfDemoTitle");
-    const body = $("#wfDemoBody");
-    const map = {
-      upload: { title: "① 上传数据", render: renderDemoUpload },
-      plan: { title: "② AI 规划任务 DAG", render: renderDemoPlan },
-      execute: { title: "③ 自动执行（日志流）", render: renderDemoExecute },
-      report: { title: "④ 洞察报告", render: renderDemoReport },
-    };
-    const cfg = map[step];
-    if (!cfg) return;
-    title.textContent = cfg.title;
-    body.innerHTML = cfg.render(demo);
-    panel.style.display = "block";
-    // 标记激活态
-    $$("#homeWorkflowSteps .wf-step").forEach((s) => s.classList.toggle("active", s.dataset.step === step));
-  }
-
-  function closeWfDemo() {
-    $("#wfDemoPanel").style.display = "none";
-    $$("#homeWorkflowSteps .wf-step").forEach((s) => s.classList.remove("active"));
-  }
-
-  function renderDemoUpload(demo) {
-    return `<div class="demo-upload">
-      <p class="muted small">点击「上传 CSV 开始分析」即可上传你的数据，Agent 会自动识别列类型与质量。</p>
-      <pre class="demo-csv-sample">date,region,product,sales,quantity
-2024-01-05,华东,笔记本,7899.00,2
-2024-01-06,华南,手机,4299.00,3</pre>
-      <button class="btn btn-primary btn-sm" onclick="document.getElementById('homeUploadBtn').click()">现在上传</button>
-    </div>`;
-  }
-
-  function renderDemoPlan(demo) {
-    const analysis = esc(demo.analysis || (demo.dag && demo.dag.metadata && demo.dag.metadata.analysis) || "");
-    const dagHtml = demo.dag ? renderDAG(demo.dag, demo.events || []) : '<p class="muted">暂无示例</p>';
-    return `<div class="demo-plan">
-      ${analysis ? `<div class="demo-thinking">${analysis}</div>` : ""}
-      <div class="dag-container">${dagHtml}</div>
-    </div>`;
-  }
-
-  function renderDemoExecute(demo) {
-    const events = demo.events || [];
-    if (!events.length) return '<p class="muted">暂无执行日志</p>';
-    return `<div class="exec-log">${renderExecutionLog(events)}</div>`;
-  }
-
-  function renderDemoReport(demo) {
-    const snip = esc(demo.report_snippet || "");
-    if (!snip) return '<p class="muted">暂无报告示例</p>';
-    return `<div class="demo-report">${snip}</div>`;
-  }
-
-  // 首页底部「最近运行」列表
-  function renderHomeRecent() {
-    const box = $("#homeRecent");
-    const list = $("#homeRecentList");
-    if (!state.runs || !state.runs.length) { box.style.display = "none"; return; }
-    box.style.display = "block";
-    const top = state.runs.slice(0, 5);
-    list.innerHTML = top.map((r) => `
-      <div class="recent-item" data-rid="${esc(r.run_id)}">
-        <div class="ri-icon">${r.has_report ? "📊" : "▦"}</div>
-        <div class="ri-main">
-          <div class="ri-title">${esc(r.title || r.run_id)}</div>
-          <div class="ri-meta small muted">${esc(r.run_id)} ${r.has_cleaned ? "· 已清洗" : ""} ${r.has_report ? "· 有报告" : ""}</div>
-        </div>
-        <button class="btn btn-sm">打开</button>
-      </div>
-    `).join("");
-    list.querySelectorAll(".recent-item").forEach((item) => {
-      item.addEventListener("click", () => {
-        selectRun(item.dataset.rid);
-        showView("workbench");
-      });
-    });
-  }
-
   /* ---- 运行列表 ---- */
   async function loadRuns() {
     try {
@@ -620,7 +636,6 @@
 
   function selectRun(id) {
     state.runId = id;
-    state.flowRunId = id;
     renderSidebarRuns();
     $("#sidebar").classList.remove("open");
     setStage("done");
@@ -639,42 +654,14 @@
     return isNaN(d) ? ts : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
   }
 
-  /* ---- 工作台 ---- */
-  function bindWorkbench() {
-    $("#newRunBtn").addEventListener("click", () => showView("flow"));
-    $("#wbRefreshBtn").addEventListener("click", async () => {
-      await Promise.all([loadRuns(), loadTools(), loadHistory()]);
-      renderWorkbench();
-      toast("已刷新");
-    });
-
-    $$(".nav-item").forEach((n) => n.addEventListener("click", () => {
-      state.sidebarSection = n.dataset.section;
-      $$(".nav-item").forEach((x) => x.classList.toggle("active", x === n));
-      renderSidebar();
-    }));
-
-    $$("#wbTabs .toolbar-tab").forEach((t) => t.addEventListener("click", () => {
-      state.wbTab = t.dataset.tab;
-      $$("#wbTabs .toolbar-tab").forEach((x) => x.classList.toggle("active", x === t));
-      renderWorkbenchContent();
-    }));
-  }
-
-  function renderSidebar() {
-    if (state.sidebarSection === "runs") renderSidebarRuns();
-    else if (state.sidebarSection === "tools") renderSidebarTools();
-    else if (state.sidebarSection === "nl") renderSidebarNL();
-    else if (state.sidebarSection === "history") renderSidebarHistory();
-  }
-
   function renderSidebarRuns() {
     const box = $("#sidebarContent");
+    if (!box) return;
     box.innerHTML = '<h3>运行列表</h3><input class="run-search" placeholder="搜索运行标题/RID" id="runSearch">';
     const list = document.createElement("div");
     list.className = "run-list";
     if (!state.runs.length) {
-      list.innerHTML = '<div class="empty"><p>暂无运行，点击「新建运行」开始</p></div>';
+      list.innerHTML = '<div class="empty"><p>暂无运行，点击「新建分析」开始</p></div>';
     } else {
       const term = ($("#runSearch")?.value || "").toLowerCase();
       state.runs
@@ -705,146 +692,6 @@
     if (search) search.addEventListener("input", renderSidebarRuns);
   }
 
-  function renderSidebarTools() {
-    const box = $("#sidebarContent");
-    box.innerHTML = '<h3>工具箱</h3><div class="tool-grid" id="sidebarTools"></div>';
-    const grid = $("#sidebarTools");
-    state.tools.forEach((t) => {
-      const btn = document.createElement("button");
-      btn.className = "tool-btn";
-      btn.innerHTML = `<span class="t-name">${esc(TOOL_LABEL[t.name] || t.name)}</span><span class="t-desc">${esc(t.description || "")}</span>`;
-      btn.addEventListener("click", () => runTool(t.name, btn));
-      grid.appendChild(btn);
-    });
-  }
-
-  function renderSidebarNL() {
-    const box = $("#sidebarContent");
-    box.innerHTML = `
-      <h3>自然语言查数</h3>
-      <p class="small muted" style="margin-bottom:12px">选中运行后，输入问题即可调用智能查数/聚合/洞察。</p>
-      <div class="field-group" style="margin-bottom:10px">
-        <input class="run-search" id="nlQuestion" placeholder="例如：按品类汇总销售额 Top5">
-      </div>
-      <div class="flex gap-8" style="margin-bottom:12px">
-        <button class="btn btn-sm btn-primary" id="nlFilterBtn">智能查数</button>
-        <button class="btn btn-sm" id="nlAggBtn">分组聚合</button>
-        <button class="btn btn-sm" id="nlInsightBtn">智能洞察</button>
-      </div>
-      <div id="nlResult" class="small" style="white-space:pre-wrap;font-family:var(--font-mono)"></div>`;
-    $("#nlFilterBtn").addEventListener("click", () => runNL("nl_filter"));
-    $("#nlAggBtn").addEventListener("click", () => runNL("nl_agg"));
-    $("#nlInsightBtn").addEventListener("click", () => runNL("nl_insight"));
-  }
-
-  async function runNL(tool) {
-    if (!state.runId) { toast("请先选择运行", true); return; }
-    const q = $("#nlQuestion").value.trim();
-    if (!q) { toast("请输入问题", true); return; }
-    const out = $("#nlResult");
-    out.textContent = "思考中…";
-    try {
-      const r = await api(`/api/run/${state.runId}/tool`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool, params: { question: q } }),
-      });
-      out.textContent = JSON.stringify(r, null, 2);
-      toast(r.success ? "查询完成" : "查询失败", !r.success);
-    } catch (e) { out.textContent = e.message; toast(e.message, true); }
-  }
-
-  async function renderSidebarHistory() {
-    const box = $("#sidebarContent");
-    box.innerHTML = '<h3>历史记录</h3><div id="historyList"></div>';
-    try {
-      const r = await api("/api/history");
-      const list = $("#historyList");
-      if (!r.history.length) { list.innerHTML = '<div class="empty"><p>暂无历史记录</p></div>'; return; }
-      list.innerHTML = r.history.map((h) => `
-        <div class="run-item" style="margin-bottom:8px">
-          <div class="bold" style="font-size:13px">${esc(h.goal)}</div>
-          <div class="run-meta">${esc(h.ts)} · 列: ${esc(h.columns.join(", "))} · 模型: ${esc(h.model || "—")}</div>
-        </div>`).join("");
-    } catch (e) { box.innerHTML += `<p class="small muted">加载失败：${esc(e.message)}</p>`; }
-  }
-
-  function renderWorkbench() {
-    renderSidebar();
-    const run = state.runs.find((r) => r.run_id === state.runId);
-    if (run) {
-      $("#mainTitle").textContent = run.title || run.run_id;
-      $("#mainBreadcrumb").innerHTML = `运行 <b>${esc(run.run_id)}</b> ${run.has_report ? "· 有报告" : ""} ${run.has_cleaned ? "· 已清洗" : ""}`;
-    } else {
-      $("#mainTitle").textContent = "运行详情";
-      $("#mainBreadcrumb").textContent = "选择左侧运行以查看数据与产物";
-    }
-    renderWorkbenchContent();
-  }
-
-  function renderWorkbenchContent() {
-    const box = $("#wbContent");
-    if (!state.runId) {
-      box.innerHTML = '<div class="empty"><div class="icon">▦</div><p>选择左侧运行，开始查看数据、图表与报告</p></div>';
-      return;
-    }
-    if (state.wbTab === "data") renderDataTab();
-    else if (state.wbTab === "ai-analysis") renderAIAnalysis();
-    else if (state.wbTab === "report") renderReportChatTab();
-    else if (state.wbTab === "download") renderDownloads();
-    else if (state.wbTab === "advanced") renderAdvancedTab();
-  }
-
-  /* ---- 数据 tab：预览 + 探索合并 ---- */
-  function renderDataTab() {
-    const box = $("#wbContent");
-    box.innerHTML = `
-      <div class="data-tab-header">
-        <div class="data-tab-subtabs">
-          <button class="subtab active" data-sub="preview">数据预览</button>
-          <button class="subtab" data-sub="explore">数据探索</button>
-        </div>
-      </div>
-      <div id="dataSubContent"></div>
-    `;
-    $$(".data-tab-subtabs .subtab").forEach((b) => {
-      b.addEventListener("click", () => {
-        $$(".data-tab-subtabs .subtab").forEach((x) => x.classList.remove("active"));
-        b.classList.add("active");
-        if (b.dataset.sub === "preview") loadData();
-        else renderExplore();
-      });
-    });
-    loadData();
-  }
-
-  /* ---- AI 分析 tab：DAG + 思考过程 + 执行日志 ---- */
-  async function renderAIAnalysis() {
-    const box = $("#wbContent");
-    box.innerHTML = '<div class="muted" style="padding:20px">加载中…</div>';
-    try {
-      const r = await api(`/api/run/${state.runId}/dag`);
-      const dag = r.dag || {};
-      const analysis = r.analysis || "";
-      const events = r.events || [];
-
-      box.innerHTML = `
-        <div class="ai-analysis-grid">
-          <div class="ai-col ai-dag-col">
-            <h3>🧠 任务规划 DAG</h3>
-            ${renderThinking(analysis)}
-            <div class="dag-container">${renderDAG(dag, events)}</div>
-          </div>
-          <div class="ai-col ai-log-col">
-            <h3>📋 执行日志流</h3>
-            <div class="exec-log">${renderExecutionLog(events)}</div>
-          </div>
-        </div>
-      `;
-    } catch (e) {
-      box.innerHTML = `<div class="empty"><div class="icon">📋</div><p>暂无执行轨迹（${esc(e.message)}）</p></div>`;
-    }
-  }
-
   /* ---- DAG SVG 可视化 ---- */
   function renderDAG(dag, events) {
     const nodes = (dag && dag.nodes) || [];
@@ -864,7 +711,6 @@
     const levels = {};
     const inDeg = {};
     nodes.forEach((n) => { inDeg[n.task_id] = (n.dependencies || []).length; });
-    // 拓扑分层
     let assigned = 0;
     let level = 0;
     const remaining = new Set(nodes.map((n) => n.task_id));
@@ -877,7 +723,6 @@
         }
       });
       if (!layer.length) {
-        // 防死循环：剩余节点都放第 level 层
         remaining.forEach((id) => { levels[id] = level; });
         break;
       }
@@ -934,7 +779,7 @@
       if (!pos) return;
       const status = nodeStatus[n.task_id] || n.status || "pending";
       const desc = (n.description || "").substring(0, 30);
-      const toolName = TOOL_LABELS[n.metadata?.tool] || n.metadata?.tool || "";
+      const toolName = TOOL_LABEL[n.metadata?.tool] || n.metadata?.tool || "";
       const statusIcon = { done: "✅", running: "🔄", failed: "❌", pending: "⏳" }[status] || "⏳";
       svg += `<g class="dag-node ${status}" transform="translate(${pos.x},${pos.y})">`;
       svg += `<rect width="${nodeW}" height="${nodeH}" rx="8" />`;
@@ -963,9 +808,9 @@
       "planning_complete": { icon: "✅", text: (d) => `规划完成：${d.node_count || 0} 个子任务`, cls: "success" },
       "plan_verified": { icon: "✅", text: (d) => `规划验证通过（score: ${d.score || "?"}/100）`, cls: "success" },
       "plan_improvement_needed": { icon: "⚠️", text: (d) => `规划需要改进（${d.suggestions?.length || 0} 条建议）`, cls: "warning" },
-      "tool_start": { icon: "🔧", text: (d) => `正在执行：${TOOL_LABELS[d.tool] || d.tool || d.task_desc || "未知工具"}...`, cls: "tool" },
-      "tool_complete": { icon: "✅", text: (d) => `${TOOL_LABELS[d.tool] || d.tool || "工具"}完成${d.duration ? `（${d.duration}s）` : ""}`, cls: "success" },
-      "tool_failed": { icon: "❌", text: (d) => `${TOOL_LABELS[d.tool] || d.tool || "工具"}失败：${esc(d.error || "")}`, cls: "error" },
+      "tool_start": { icon: "🔧", text: (d) => `正在执行：${TOOL_LABEL[d.tool] || d.tool || d.task_desc || "未知工具"}...`, cls: "tool" },
+      "tool_complete": { icon: "✅", text: (d) => `${TOOL_LABEL[d.tool] || d.tool || "工具"}完成${d.duration ? `（${d.duration}s）` : ""}`, cls: "success" },
+      "tool_failed": { icon: "❌", text: (d) => `${TOOL_LABEL[d.tool] || d.tool || "工具"}失败：${esc(d.error || "")}`, cls: "error" },
       "dag_stuck": { icon: "⚠️", text: (d) => `DAG 卡住，尝试重新规划...`, cls: "warning" },
       "replan_partial_start": { icon: "🔄", text: (d) => `局部重新规划...`, cls: "thinking" },
       "replan_partial_complete": { icon: "✅", text: (d) => `重新规划完成`, cls: "success" },
@@ -1012,15 +857,14 @@
     }).join("") + '</div>';
   }
 
-  // 展示最近一次工具执行结果（分布拟合/相关/异常等返回真实数值结果，而非数据预览）
   // 工具结果解释：异步调 LLM 生成，先渲染占位，返回后填充
   function toolExplainPlaceholder() {
     return `<div class="tool-explain" id="toolExplainBox"><div class="te-icon">💡</div><div class="te-body"><p class="te-loading">正在生成解读…</p></div></div>`;
   }
 
-  async function loadToolExplain(tool, data) {
-    const box = $("#toolExplainBox");
-    if (!box || !data || !data.success) return;
+  async function loadToolExplain(tool, data, container) {
+    const box = container.querySelector("#toolExplainBox");
+    if (!box || !data || data.success === false) return;
     try {
       const r = await api(`/api/run/${state.runId}/explain`, {
         method: "POST",
@@ -1035,31 +879,25 @@
     }
   }
 
-  function renderToolResult() {
-    const box = $("#wbContent");
-    const tr = state.toolResult;
-    if (!tr || !tr.data) {
-      box.innerHTML = '<div class="empty"><div class="icon">▧</div><p>暂无工具执行结果，请先在「分步工具」中执行一个分析</p></div>';
+  // 渲染工具执行结果到指定容器
+  function renderToolResult(data, tool, container) {
+    if (!data || data.success === false) {
+      container.innerHTML = `<p class="muted">工具执行失败${data?.error ? `：${esc(data.error)}` : ""}</p>`;
       return;
     }
-    const { tool, data } = tr;
     const label = TOOL_LABEL[tool] || tool;
     const metaKeys = ["success", "tool", "meta_file", "chart"];
     let html = `<div class="panel-card"><h3>工具结果 · ${esc(label)}</h3>`;
     html += toolExplainPlaceholder();
     if (data.chart) {
-      // 优先尝试 Plotly 交互式渲染，不可用时降级为 PNG
-      html += `<div id="plotlyChart" class="chart-card chart-single"></div>`;
-      setTimeout(() => loadInteractiveChart(data.chart, tool, data), 50);
+      html += `<div class="chart-card chart-single" id="plotlyChart"></div>`;
     }
-    // 数组字段（如 results）渲染成表格
     Object.entries(data).forEach(([k, v]) => {
       if (metaKeys.includes(k)) return;
       if (Array.isArray(v) && v.length && typeof v[0] === "object" && v[0] !== null) {
         html += `<h4 class="kv-title">${esc(k)}</h4>` + objTable(v);
       }
     });
-    // 其余标量字段渲染成键值对
     const kv = Object.entries(data).filter(([k, v]) => !metaKeys.includes(k) && !(Array.isArray(v) && v.length && typeof v[0] === "object" && v[0] !== null));
     if (kv.length) {
       html += '<div class="kv-list">' + kv.map(([k, v]) => {
@@ -1071,14 +909,16 @@
       }).join("") + '</div>';
     }
     html += '</div>';
-    box.innerHTML = html;
-    // 异步加载 LLM 解释
-    loadToolExplain(tool, data);
+    container.innerHTML = html;
+    if (data.chart) {
+      const chartDiv = container.querySelector("#plotlyChart");
+      if (chartDiv) loadInteractiveChart(data.chart, tool, data, chartDiv);
+    }
+    loadToolExplain(tool, data, container);
   }
 
   // 交互式图表：优先 Plotly，降级 PNG
-  async function loadInteractiveChart(chartName, tool, data) {
-    const container = $("#plotlyChart");
+  async function loadInteractiveChart(chartName, tool, data, container) {
     if (!container) return;
     if (typeof Plotly === "undefined") {
       container.innerHTML = `<img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(chartName)}" alt="${esc(chartName)}" style="max-width:100%">`;
@@ -1127,360 +967,7 @@
     }
   }
 
-  // 数据探索：即时筛选/分组/统计，不修改原数据
-  const EXPLORE_ACTIONS = [
-    { value: "describe", label: "描述统计" },
-    { value: "filter", label: "条件筛选" },
-    { value: "group", label: "分组聚合" },
-    { value: "correlate", label: "相关性矩阵" },
-  ];
-  const exploreState = { action: "describe", cols: [] };
-
-  async function renderExplore() {
-    const box = $("#wbContent");
-    if (!state.runId) return;
-    // 拉取列名以填充下拉
-    try {
-      const d = await api(`/api/run/${state.runId}/data?which=auto`);
-      exploreState.cols = d.columns || [];
-    } catch (e) { exploreState.cols = []; }
-    box.innerHTML = `<div class="panel-card"><h3>数据探索 <span class="small muted">基于 cleaned.csv（无则 input.csv），不修改原数据</span></h3>
-      <div class="field-group" style="margin-bottom:12px">
-        <label>探索方式</label>
-        <select id="exploreAction" class="run-search">
-          ${EXPLORE_ACTIONS.map((a) => `<option value="${a.value}"${a.value === exploreState.action ? " selected" : ""}>${esc(a.label)}</option>`).join("")}
-        </select>
-      </div>
-      <div id="exploreParams"></div>
-      <div class="flex gap-8" style="margin-top:10px">
-        <button class="btn btn-sm btn-primary" id="exploreRunBtn">执行</button>
-      </div>
-      <div id="exploreResult" style="margin-top:14px"></div>
-    </div>`;
-    renderExploreParams();
-    $("#exploreAction").addEventListener("change", (e) => {
-      exploreState.action = e.target.value;
-      renderExploreParams();
-    });
-    $("#exploreRunBtn").addEventListener("click", runExplore);
-  }
-
-  function renderExploreParams() {
-    const box = $("#exploreParams");
-    const action = exploreState.action;
-    const colOpts = exploreState.cols.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
-    let html = "";
-    if (action === "filter") {
-      html = `<div class="flex gap-8" style="flex-wrap:wrap;align-items:end">
-        <label class="field" style="margin:0"><span>列</span><select id="exCol" class="run-search">${colOpts}</select></label>
-        <label class="field" style="margin:0"><span>运算符</span>
-          <select id="exOp" class="run-search">${[">", "<", "==", ">=", "<="].map((o) => `<option value="${o}">${o}</option>`).join("")}</select></label>
-        <label class="field" style="margin:0"><span>值</span><input id="exVal" class="run-search" type="number" step="any" value="0"></label>
-      </div>`;
-    } else if (action === "group") {
-      html = `<div class="flex gap-8" style="flex-wrap:wrap;align-items:end">
-        <label class="field" style="margin:0"><span>分组列</span><select id="exGroupCol" class="run-search">${colOpts}</select></label>
-        <label class="field" style="margin:0"><span>聚合列</span><select id="exAggCol" class="run-search">${colOpts}</select></label>
-        <label class="field" style="margin:0"><span>聚合函数</span>
-          <select id="exAggFunc" class="run-search">${["mean", "sum", "count", "min", "max"].map((f) => `<option value="${f}">${f}</option>`).join("")}</select></label>
-      </div>`;
-    } else if (action === "correlate") {
-      html = `<div class="field-group">
-        <label>数值列 <span class="muted small">（留空则自动选所有数值列；多列用逗号分隔）</span></label>
-        <input id="exCols" class="run-search" placeholder="如 sales,quantity">
-      </div>`;
-    } else {
-      html = `<p class="small muted">描述统计无需额外参数，直接点「执行」。</p>`;
-    }
-    box.innerHTML = html;
-  }
-
-  async function runExplore() {
-    if (!state.runId) { toast("请先选择运行", true); return; }
-    const action = exploreState.action;
-    const params = {};
-    if (action === "filter") {
-      params.col = $("#exCol")?.value || "";
-      params.op = $("#exOp")?.value || ">";
-      params.value = parseFloat($("#exVal")?.value || "0");
-    } else if (action === "group") {
-      params.group_col = $("#exGroupCol")?.value || "";
-      params.agg_col = $("#exAggCol")?.value || "";
-      params.agg_func = $("#exAggFunc")?.value || "mean";
-    } else if (action === "correlate") {
-      const raw = ($("#exCols")?.value || "").trim();
-      if (raw) params.cols = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    }
-    const out = $("#exploreResult");
-    out.innerHTML = '<p class="muted">执行中…</p>';
-    try {
-      const r = await api(`/api/run/${state.runId}/explore`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, params }),
-      });
-      out.innerHTML = renderExploreResult(action, r.result);
-      toast("探索完成");
-    } catch (e) {
-      out.innerHTML = `<p class="muted">执行失败：${esc(e.message)}</p>`;
-    }
-  }
-
-  function renderExploreResult(action, result) {
-    if (!result) return '<p class="muted">无结果</p>';
-    if (result.error) return `<p class="muted">${esc(result.error)}</p>`;
-    let html = "";
-    if (action === "filter") {
-      html += `<p class="small muted">筛选后共 ${result.rows ?? 0} 行</p>`;
-      html += objTable(result.sample || []);
-    } else if (action === "group") {
-      html += objTable(result.groups || []);
-    } else if (action === "describe") {
-      // describe 返回 {col: {stat: val}}，转成行表格
-      const stats = Object.keys(result);
-      const cols = stats.length ? Object.keys(result[stats[0]] || {}) : [];
-      const rows = cols.map((c) => {
-        const row = { 统计: c };
-        stats.forEach((s) => { row[s] = result[s][c]; });
-        return row;
-      });
-      html += objTable(rows);
-    } else if (action === "correlate") {
-      const matrix = result.matrix || {};
-      const cols = Object.keys(matrix);
-      const rows = cols.map((c) => {
-        const row = { "": c };
-        cols.forEach((c2) => { row[c2] = matrix[c][c2]; });
-        return row;
-      });
-      html += objTable(rows);
-    }
-    return html || '<p class="muted">无结果</p>';
-  }
-
-  async function loadRunInfoShort() {
-    if (!state.runId) return;
-    try {
-      const r = await api(`/api/run/${state.runId}/info`);
-      $("#mainTitle").textContent = r.title || r.run_id;
-      $("#mainBreadcrumb").innerHTML = `运行 <b>${esc(r.run_id)}</b> · ${r.rows || 0} 行 × ${r.cols || 0} 列 · ${r.has_report ? "有报告" : "无报告"}`;
-    } catch (e) { /* ignore */ }
-  }
-
-  async function loadData(which = "auto") {
-    const box = $("#wbContent");
-    if (!state.runId) return;
-    box.innerHTML = '<p class="muted">加载数据中…</p>';
-    try {
-      const r = await api(`/api/run/${state.runId}/data?which=${which}`);
-      let html = `<div class="panel-card"><h3>数据预览 <span class="small muted">(${which === "auto" ? "自动" : which})</span></h3>`;
-      html += `<div class="flex gap-8" style="margin-bottom:12px">
-        <button class="btn btn-sm ${which === "input" ? "btn-primary" : ""}" onclick="window.__setData('input')">原始 input</button>
-        <button class="btn btn-sm ${which === "cleaned" ? "btn-primary" : ""}" onclick="window.__setData('cleaned')">清洗后</button>
-      </div>`;
-      html += `<div class="table-wrap"><table class="data"><thead><tr>`;
-      r.columns.forEach((c) => (html += `<th>${esc(c)}</th>`));
-      html += `</tr></thead><tbody>`;
-      r.sample.forEach((row) => {
-        html += "<tr>";
-        r.columns.forEach((c) => (html += `<td>${esc(String(row[c] ?? ""))}</td>`));
-        html += "</tr>";
-      });
-      html += `</tbody></table></div><p class="small muted" style="margin-top:10px">共 ${r.rows} 行 × ${r.cols} 列，预览前 10 行</p></div>`;
-      box.innerHTML = html;
-      loadRunInfoShort();
-    } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
-  }
-  window.__setData = (which) => loadData(which);
-
-  function renderToolsTab() {
-    const box = $("#advToolsContainer") || $("#wbContent");
-    // 按分组组织工具
-    const groups = {};
-    state.tools.forEach((t) => {
-      const g = TOOL_GROUP[t.name] || "other";
-      (groups[g] = groups[g] || []).push(t);
-    });
-    const groupOrder = ["load", "hygiene", "clean", "feature", "stats", "visual", "model", "report", "nl"];
-    let html = '<div class="panel-card"><h3>分步分析工具</h3>';
-    groupOrder.forEach((g) => {
-      if (!groups[g]) return;
-      html += `<div class="tool-group"><div class="tool-group-title">${esc(GROUP_NAME[g] || g)}</div><div class="tool-grid">`;
-      groups[g].forEach((t) => {
-        const label = esc(TOOL_LABEL[t.name] || t.name);
-        const desc = esc(t.description || "");
-        const hasParams = !!TOOL_PARAMS[t.name];
-        html += `<div class="tool-card" data-tool="${esc(t.name)}">
-          <button class="tool-btn${hasParams ? " has-params" : ""}" data-tool="${esc(t.name)}">
-            <span class="t-name">${label}</span>
-            <span class="t-desc">${desc}</span>
-            ${hasParams ? '<span class="t-arrow">⚙</span>' : ''}
-          </button>
-          ${hasParams ? `<div class="tool-params" id="params-${esc(t.name)}" style="display:none"></div>` : ''}
-        </div>`;
-      });
-      html += '</div></div>';
-    });
-    html += '</div>';
-    box.innerHTML = html;
-
-    // 绑定点击事件
-    $$(".tool-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const name = btn.dataset.tool;
-        const paramsBox = $(`#params-${name}`);
-        if (paramsBox && TOOL_PARAMS[name]) {
-          // 切换参数面板显示
-          const isVisible = paramsBox.style.display !== "none";
-          $$(".tool-params").forEach((p) => (p.style.display = "none"));
-          $$(".tool-btn").forEach((b) => b.classList.remove("expanded"));
-          if (!isVisible) {
-            renderToolParams(name, paramsBox);
-            paramsBox.style.display = "block";
-            btn.classList.add("expanded");
-          }
-        } else {
-          // 无参数工具直接执行
-          runTool(name, btn);
-        }
-      });
-    });
-
-    // 如果有工具执行结果，在底部展示
-    if (state.toolResult && state.toolResult.data) {
-      const tr = state.toolResult;
-      const trHtml = `<div class="panel-card" style="margin-top:16px">
-        <h3>工具结果：${esc(TOOL_LABEL[tr.tool] || tr.tool)}</h3>
-        ${toolExplainPlaceholder()}
-        <div id="toolResultBody"></div>
-      </div>`;
-      box.innerHTML += trHtml;
-      const rBody = $("#toolResultBody");
-      const data = tr.data;
-      if (data.success === false) {
-        rBody.innerHTML = `<div class="empty"><p>❌ ${esc(data.error || "执行失败")}</p></div>`;
-      } else {
-        let h = "";
-        const tableKeys = ["results", "sample", "metrics", "filled", "clipped", "dropped", "issues", "importance"];
-        tableKeys.forEach((k) => {
-          if (Array.isArray(data[k]) && data[k].length) h += objTable(data[k]);
-        });
-        const kvData = {};
-        Object.keys(data).forEach((k) => {
-          if (!tableKeys.includes(k) && typeof data[k] !== "object" && k !== "success")
-            kvData[k] = data[k];
-        });
-        if (Object.keys(kvData).length) h += renderKV(kvData);
-        if (data.chart) h += `<img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(data.chart)}" class="chart-single" />`;
-        rBody.innerHTML = h || "<p>执行完成</p>";
-        loadToolExplain(tr.tool, data);
-      }
-    }
-  }
-
-  /* ---- 高级 tab：手动工具箱（默认折叠，给想调试单个工具的用户） ---- */
-  function renderAdvancedTab() {
-    const box = $("#wbContent");
-    // 若有刚执行的工具结果，自动展开工具箱以展示结果
-    const hasResult = !!(state.toolResult && state.toolResult.data);
-    box.innerHTML = `
-      <div class="panel-card">
-        <div class="advanced-warn">
-          <strong>⚠️ 高级模式</strong>
-          <p class="small muted">这里可以手动执行单个工具，用于调试或自定义流程。<b>通常不需要</b>——AI 全流程分析会自动编排这些工具。点击下方按钮展开工具列表。</p>
-        </div>
-        <button class="btn btn-outline" id="advToggleBtn">${hasResult ? "收起工具箱" : `展开工具箱（${state.tools.length} 个工具）`}</button>
-        <div id="advToolsContainer" style="display:${hasResult ? "block" : "none"};margin-top:12px"></div>
-      </div>
-    `;
-    if (hasResult) renderToolsTab(); // 立即渲染（含工具结果区）
-    $("#advToggleBtn").addEventListener("click", () => {
-      const c = $("#advToolsContainer");
-      const btn = $("#advToggleBtn");
-      if (c.style.display === "none") {
-        if (!c.innerHTML) renderToolsTab(); // 复用现有渲染逻辑，渲染到 advToolsContainer
-        c.style.display = "block";
-        btn.textContent = "收起工具箱";
-      } else {
-        c.style.display = "none";
-        btn.textContent = `展开工具箱（${state.tools.length} 个工具）`;
-      }
-    });
-  }
-
-  function renderToolParams(toolName, container) {
-    const params = TOOL_PARAMS[toolName] || [];
-    let html = '<div class="param-form">';
-    params.forEach((p) => {
-      if (p.type === "select") {
-        html += `<label class="param-item"><span class="param-label">${esc(p.label)}</span>
-          <select id="param-${p.key}">
-            ${p.options.map((o) => `<option value="${o}" ${o === p.default ? "selected" : ""}>${o}</option>`).join("")}
-          </select></label>`;
-      } else if (p.type === "checkbox") {
-        html += `<label class="param-item checkbox"><input type="checkbox" id="param-${p.key}" ${p.default ? "checked" : ""}>
-          <span class="param-label">${esc(p.label)}</span></label>`;
-      } else {
-        html += `<label class="param-item"><span class="param-label">${esc(p.label)}</span>
-          <input id="param-${p.key}" type="text" value="${esc(String(p.default))}" placeholder="${esc(p.label)}"></label>`;
-      }
-    });
-    html += `<button class="btn btn-primary btn-sm tool-run-btn" id="run-${toolName}">执行 ${esc(TOOL_LABEL[toolName] || toolName)}</button></div>`;
-    container.innerHTML = html;
-    $(`#run-${toolName}`).addEventListener("click", () => {
-      const params = {};
-      TOOL_PARAMS[toolName].forEach((p) => {
-        const el = $(`#param-${p.key}`);
-        if (p.type === "checkbox") params[p.key] = el.checked;
-        else if (el.value && el.value !== p.default) params[p.key] = el.value;
-      });
-      runTool(toolName, $(`#run-${toolName}`), params);
-    });
-  }
-
-  async function loadCharts() {
-    const box = $("#wbContent");
-    if (!state.runId) return;
-    box.innerHTML = '<p class="muted">加载图表中…</p>';
-    try {
-      const r = await api(`/api/run/${state.runId}/charts`);
-      if (!r.charts.length) { box.innerHTML = '<div class="empty"><div class="icon">▤</div><p>暂无图表，试试执行「可视化」工具</p></div>'; return; }
-      box.innerHTML = '<div class="chart-grid">' + r.charts.map((c) => `
-        <figure class="chart-card"><img src="${c.url}" alt="${esc(c.name)}"><figcaption>${esc(c.name)}</figcaption></figure>
-      `).join("") + '</div>';
-    } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
-  }
-
-  /* ---- 报告 & 答疑 tab：报告 Markdown + 数据答疑面板（左右栅格，复用 renderChatPanel） ---- */
-  async function renderReportChatTab() {
-    const box = $("#wbContent");
-    if (!state.runId) return;
-    box.innerHTML = '<p class="muted">加载报告中…</p>';
-    try {
-      const md = await fetch(`/api/report/${state.runId}`).then((r) => r.ok ? r.text() : null);
-      if (!md) {
-        box.innerHTML = '<div class="empty"><div class="icon">📝</div><p>暂无报告，试试执行「全流程分析」生成报告</p></div>';
-        return;
-      }
-      // 左栏：报告；右栏由 renderChatPanel 追加 .chat-panel
-      box.innerHTML = `<div class="report-chat-grid"><div class="report-pane report-body">${esc(md).replace(/\n/g, "<br>")}</div></div>`;
-      const grid = box.querySelector(".report-chat-grid");
-      renderChatPanel(grid, state.runId);
-    } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
-  }
-
-  async function loadReport() {
-    const box = $("#wbContent");
-    if (!state.runId) return;
-    box.innerHTML = '<p class="muted">加载报告中…</p>';
-    try {
-      const md = await fetch(`/api/report/${state.runId}`).then((r) => r.ok ? r.text() : null);
-      if (!md) { box.innerHTML = '<div class="empty"><div class="icon">📝</div><p>暂无报告，试试执行「生成报告」或「全流程分析」</p></div>'; return; }
-      box.innerHTML = `<div class="report-body">${esc(md).replace(/\n/g, "<br>")}</div>`;
-      renderChatPanel(box, state.runId);
-    } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
-  }
-
-  // -- 数据答疑对话面板（工作台报告页 / 全流程结果页共用） --
+  // -- 数据答疑对话面板 --
   function renderChatMessages(runId, list, msgEl) {
     if (!msgEl || !list) return;
     msgEl.innerHTML = list.length
@@ -1525,7 +1012,6 @@
           body: JSON.stringify({ question: q }),
         });
         list.push({ role: "assistant", text: res.answer, used_llm: res.used_llm });
-        // 规则作答时提示原因与解决办法（如 API 限额 / 配置缺失）
         if (!res.used_llm && res.reason) list.push({ role: "notice", text: res.reason });
       } catch (e) {
         list.push({ role: "assistant", text: "出错了：" + e.message });
@@ -1536,76 +1022,34 @@
     input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") send(); });
   }
 
-  async function loadTrace() {
-    const box = $("#wbContent");
-    if (!state.runId) return;
-    box.innerHTML = '<p class="muted">加载轨迹中…</p>';
+  /* ---- 目标建议：基于数据的分析方向 chips ---- */
+  async function loadGoalSuggest(rid) {
+    const box = $("#goalSuggest");
+    if (!box || !rid) return;
     try {
-      const r = await api(`/api/run/${state.runId}/trace`);
-      let html = `<div class="panel-card"><h3>执行轨迹</h3>`;
-      html += `<div class="trace-summary"><span>目标：<b>${esc(r.goal || "—")}</b></span><span>耗时：${r.duration != null ? Math.round(r.duration) + "s" : "—"}</span><span>节点：${r.node_count ?? "—"}</span></div>`;
-      const events = r.events || [];
-      if (!events.length) { html += '<p class="muted">暂无事件</p></div>'; box.innerHTML = html; return; }
-      html += '<div class="trace-timeline">';
-      events.forEach((e, i) => {
-        const err = (e.event || "").includes("error") || e.error;
-        html += `<div class="tl-item"><div class="tl-dot ${err ? "error" : ""}"></div>
-          <div class="tl-content"><div class="tl-title">${esc(e.event || "step")}</div>
-          <div class="tl-meta">#${i + 1}${e.duration_ms != null ? " · " + e.duration_ms + " ms" : ""}${e.error ? " · " + esc(e.error) : ""}</div></div></div>`;
-      });
-      html += '</div></div>';
-      box.innerHTML = html;
-    } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
+      const r = await api(`/api/run/${rid}/suggest-goals`);
+      const goals = r.goals || r.suggestions || [];
+      if (!goals.length) { box.style.display = "none"; return; }
+      box.innerHTML = `
+        <div class="gs-label">💡 基于你的数据，还可以这样分析：</div>
+        <div class="gs-chips">
+          ${goals.map((g) => `<span class="gs-chip" data-goal="${esc(g)}">${esc(g)}</span>`).join("")}
+        </div>
+      `;
+      box.style.display = "block";
+      $$(".gs-chip").forEach((c) => c.addEventListener("click", () => {
+        state.runId = null;
+        _idleFile = null;
+        setStage("idle");
+        setTimeout(() => {
+          const goalEl = $("#idleGoal");
+          if (goalEl) goalEl.value = c.dataset.goal;
+        }, 50);
+      }));
+    } catch (e) { box.style.display = "none"; }
   }
 
-  function renderDownloads() {
-    const box = $("#wbContent");
-    if (!state.runId) { box.innerHTML = '<div class="empty"><p>无可用下载</p></div>'; return; }
-    const id = state.runId;
-    box.innerHTML = `<div class="panel-card"><h3>下载产物</h3><div class="dl-list">
-      <a href="/api/run/${id}/download?name=report.md" download>下载报告 (.md) <span>→</span></a>
-      <a href="/api/run/${id}/download?name=cleaned.csv" download>下载清洗后数据 (cleaned.csv) <span>→</span></a>
-      <a href="/api/run/${id}/download?name=input.csv" download>下载原始数据 (input.csv) <span>→</span></a>
-      <a href="/api/run/${id}/bundle" download>打包全部产物 (.zip) <span>→</span></a>
-    </div></div>`;
-  }
-
-  // 会修改数据文件、需要立即回看数据的工具（执行后仍跳数据预览）
-  const DATA_MUTATORS = ["data_clean", "feature_engineer"];
-
-  async function runTool(name, btn, externalParams = {}) {
-    if (!state.runId) { toast("请先选择运行", true); return; }
-    const params = { ...externalParams };
-    // 仅在没有外部参数时使用旧的默认逻辑（向后兼容）
-    if (Object.keys(externalParams).length === 0) {
-      if (name === "eda_plot") params.kind = "all";
-      if (name === "data_clean") params.fill = "median";
-      if (name === "nl_filter") params.question = "销售额最高的前10条";
-      if (name === "nl_agg") params.question = "按地区汇总销售额";
-      if (name === "nl_insight") params.question = "整体销售额表现如何";
-    }
-    btn?.classList.add("running");
-    toast(`执行 ${TOOL_LABEL[name] || name} …`);
-    try {
-      const r = await api(`/api/run/${state.runId}/tool`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: name, params }),
-      });
-      toast(r.success ? "执行完成" : "执行失败", !r.success);
-      // 侧边栏运行状态后台刷新（只写侧边栏，不覆盖主内容区）
-      // 注意：不在此处调用 loadData/loadCharts/loadReport，它们会异步覆盖主内容，
-      // 与下方工具结果渲染产生竞态；对应 tab 均为懒加载，切过去时自动刷新。
-      loadRuns().catch(() => {});
-      // 展示工具执行结果：清洗类回数据预览，其余展示在「高级」tab 的工具结果区
-      const target = (r.success && !DATA_MUTATORS.includes(name)) ? "advanced" : "data";
-      if (r.success) state.toolResult = { tool: name, data: r };
-      state.wbTab = target;
-      $$("#wbTabs .toolbar-tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === target));
-      renderWorkbenchContent();
-    } catch (e) { toast(e.message, true); }
-    finally { btn?.classList.remove("running"); }
-  }
-
+  /* ---- 工具加载 ---- */
   async function loadTools() {
     try {
       const r = await api("/api/tools");
@@ -1613,253 +1057,6 @@
     } catch (e) { toast("加载工具失败", true); }
   }
 
-  async function loadHistory() {
-    /* 首次加载缓存， sidebar 打开时再渲染 */
-  }
-
-  /* ---- 全流程分析 ---- */
-  function bindFlow() {
-    const dz = $("#flowDropzone");
-    const input = $("#flowFile");
-    dz.addEventListener("click", () => input.click());
-    dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("dragover"); });
-    dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
-    dz.addEventListener("drop", (e) => {
-      e.preventDefault(); dz.classList.remove("dragover");
-      const f = e.dataTransfer.files[0];
-      if (f) setFlowFile(f);
-    });
-    input.addEventListener("change", () => { if (input.files[0]) setFlowFile(input.files[0]); });
-
-    $("#flowHelpBtn").addEventListener("click", openHelpModal);
-    $("#helpCloseBtn").addEventListener("click", closeHelpModal);
-    $("#helpModal").addEventListener("click", (e) => { if (e.target.id === "helpModal") closeHelpModal(); });
-    $("#flowStartBtn").addEventListener("click", startFlow);
-
-    // 目标模板 chips：点击即填入分析目标
-    $$("#goalChips .chip").forEach((c) => c.addEventListener("click", () => setGoalChip(c)));
-
-    $$("#flowResultTabs .result-tab").forEach((t) => t.addEventListener("click", () => {
-      state.flowTab = t.dataset.tab;
-      $$("#flowResultTabs .result-tab").forEach((x) => x.classList.toggle("active", x === t));
-      renderFlowResult();
-    }));
-  }
-
-  function setGoalChip(chip) {
-    $("#flowGoal").value = chip.dataset.goal;
-    $$("#goalChips .chip").forEach((x) => x.classList.remove("active"));
-    $$("#goalSuggestChips .chip").forEach((x) => x.classList.remove("active"));
-    chip.classList.add("active");
-  }
-
-  // 上传数据后基于数据推断可分析方向，展示为建议 chips（不阻塞主流程）
-  async function loadGoalSuggest(rid) {
-    try {
-      const r = await api(`/api/run/${rid}/suggest-goals`);
-      if (!(r.suggestions && r.suggestions.length)) return;
-      const box = $("#goalSuggest");
-      const c = $("#goalSuggestChips");
-      c.innerHTML = r.suggestions.map((s) => `<span class="chip" data-goal="${esc(s)}">${esc(s)}</span>`).join("");
-      c.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => setGoalChip(chip)));
-      box.style.display = "block";
-    } catch (e) { /* 建议拉取失败不影响分析主流程 */ }
-  }
-
-  function formatBytes(b) {
-    if (!b) return "0 B";
-    const k = 1024, s = ["B","KB","MB","GB"];
-    const i = Math.min(s.length - 1, Math.floor(Math.log(b) / Math.log(k)));
-    return (b / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1) + " " + s[i];
-  }
-
-  function openHelpModal() { $("#helpModal").classList.add("show"); }
-  function closeHelpModal() { $("#helpModal").classList.remove("show"); }
-
-  function setFlowFile(file) {
-    state.flowFile = file;
-    const dz = $("#flowDropzone");
-    // 重置动画（每次选择文件都有一次高亮脉冲）
-    dz.classList.remove("filled");
-    void dz.offsetWidth;
-    dz.classList.add("filled");
-    // 更新上传后醒目的文件展示条
-    const bar = $("#flowFileName");
-    bar.style.display = "flex";
-    bar.querySelector(".fs-name").textContent = file.name;
-    bar.querySelector(".fs-size").textContent = formatBytes(file.size || 0);
-    $("#flowFileNameHint").style.display = "none";
-  }
-
-  async function startFlow() {
-    const file = state.flowFile;
-    // 目标可选：不填则由后端使用默认目标（综合探索分析），不再强制要求
-    const goal = $("#flowGoal").value.trim();
-    if (!file) { toast("请先上传 CSV 文件", true); return; }
-    $("#flowProgress").style.display = "block";
-    resetFlowProgress();
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await api("/api/run", { method: "POST", body: fd });
-      state.flowRunId = r.run_id;
-      await loadRuns();
-      loadGoalSuggest(state.flowRunId); // 展示基于当前数据的分析建议
-      runFlowAnalyze(goal);
-    } catch (e) { flowError(e.message); }
-  }
-
-  async function runFlowAnalyze(goal) {
-    try {
-      const fd = new FormData();
-      fd.append("goal", goal);
-      await api(`/api/run/${state.flowRunId}/analyze?async_mode=true`, { method: "POST", body: fd });
-      toast("全流程分析已开始");
-      await pollFlow(goal);
-    } catch (e) { flowError(e.message); }
-  }
-
-  function resetFlowProgress() {
-    $("#flowProgressBar").style.width = "0%";
-    $("#flowLogs").innerHTML = '<div class="log-entry muted">等待分析开始...</div>';
-    $("#flowDAG").innerHTML = '<div class="empty"><div class="icon">🧠</div><p>等待 AI 规划...</p></div>';
-    $("#flowThinking").style.display = "none";
-    $("#flowResult").style.display = "none";
-  }
-
-  function flowLog(msg, cls = "") {
-    const box = $("#flowLogs");
-    const t = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-    const div = document.createElement("div");
-    div.className = `log-entry ${cls}`;
-    div.innerHTML = `<span class="log-time">${t}</span> <span class="log-text">${esc(msg)}</span>`;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-  }
-
-  function setFlowStep(n, done = false) {
-    $("#flowProgressBar").style.width = Math.min((n / 5) * 100, 100) + "%";
-  }
-
-  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-  async function pollFlow(goal) {
-    let lastStage = "";
-    for (let i = 0; i < 300; i++) {
-      await sleep(1500);
-      let st;
-      try { st = await api(`/api/run/${state.flowRunId}/progress`); } catch (e) { continue; }
-      if (st.status === "running") {
-        if (st.stage_label && st.stage !== lastStage) {
-          lastStage = st.stage;
-          flowLog(st.stage_label, "thinking");
-          setFlowStep(st.stage === "planning" ? 1 : st.stage === "executing" ? 3 : 4);
-        }
-        // 规划完成后尝试拉取 DAG
-        if (st.stage === "executing" && !$("#flowDAG").dataset.loaded) {
-          try {
-            const dag = await api(`/api/run/${state.flowRunId}/dag`);
-            if (dag.dag && dag.dag.nodes && dag.dag.nodes.length) {
-              $("#flowDAG").dataset.loaded = "1";
-              if (dag.analysis) {
-                $("#flowThinking").style.display = "block";
-                $("#flowThinking").innerHTML = renderThinking(dag.analysis);
-              }
-              $("#flowDAG").innerHTML = renderDAG(dag.dag, dag.events || []);
-              // 渲染已有事件到日志
-              if (dag.events && dag.events.length) {
-                $("#flowLogs").innerHTML = renderExecutionLog(dag.events);
-              }
-            }
-          } catch (e) { /* trace 可能还没写好 */ }
-        }
-        // 拉取最新 events 更新日志和 DAG 状态
-        if (st.stage === "executing" && $("#flowDAG").dataset.loaded) {
-          try {
-            const dag = await api(`/api/run/${state.flowRunId}/dag`);
-            if (dag.events && dag.events.length) {
-              const logBox = $("#flowLogs");
-              const currentCount = logBox.querySelectorAll(".log-entry").length;
-              if (dag.events.length > currentCount) {
-                logBox.innerHTML = renderExecutionLog(dag.events);
-                logBox.scrollTop = logBox.scrollHeight;
-              }
-              // 更新 DAG 节点状态
-              if (dag.dag && dag.dag.nodes) {
-                $("#flowDAG").innerHTML = renderDAG(dag.dag, dag.events);
-              }
-            }
-          } catch (e) { /* ignore */ }
-        }
-        continue;
-      }
-      if (st.status === "done" || st.status === "failed") {
-        setFlowStep(5, st.status === "done");
-        // 最终拉取完整 DAG + 日志
-        try {
-          const dag = await api(`/api/run/${state.flowRunId}/dag`);
-          if (dag.analysis) {
-            $("#flowThinking").style.display = "block";
-            $("#flowThinking").innerHTML = renderThinking(dag.analysis);
-          }
-          if (dag.dag && dag.dag.nodes) {
-            $("#flowDAG").innerHTML = renderDAG(dag.dag, dag.events || []);
-          }
-          if (dag.events && dag.events.length) {
-            $("#flowLogs").innerHTML = renderExecutionLog(dag.events);
-            $("#flowLogs").scrollTop = $("#flowLogs").scrollHeight;
-          }
-        } catch (e) { /* ignore */ }
-        const mode = st.mode === "llm" ? "LLM 自动编排" : "本地规则模式";
-        toast(st.status === "done" ? `全流程分析完成（${mode}）` : `分析失败：${esc(st.error || "")}`, st.status !== "done");
-        // 同步运行列表，但不跳转视图——原地展示报告
-        await loadRuns();
-        renderHomeRecent();
-        state.flowTab = "report";
-        $$("#flowResultTabs .result-tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === "report"));
-        $("#flowResult").style.display = "block";
-        renderFlowResult();
-        return;
-      }
-      break;
-    }
-  }
-
-  function flowError(msg) {
-    flowLog("错误：" + msg);
-    toast(msg, true);
-  }
-
-  async function renderFlowResult() {
-    const box = $("#flowResultBody");
-    const id = state.flowRunId;
-    if (!id) { box.innerHTML = '<p class="muted">无结果</p>'; return; }
-    box.innerHTML = '<p class="muted">加载中…</p>';
-    if (state.flowTab === "report") {
-      try {
-        const md = await fetch(`/api/report/${id}`).then((r) => r.ok ? r.text() : null);
-        box.innerHTML = md ? `<div class="report-body">${esc(md).replace(/\n/g, "<br>")}</div>` : '<div class="empty">暂无报告</div>';
-        if (md) renderChatPanel(box, id);
-      } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
-    } else if (state.flowTab === "charts") {
-      try {
-        const r = await api(`/api/run/${id}/charts`);
-        if (!r.charts.length) { box.innerHTML = '<div class="empty">暂无图表</div>'; return; }
-        box.innerHTML = '<div class="chart-grid">' + r.charts.map((c) => `<figure class="chart-card"><img src="${c.url}" alt="${esc(c.name)}"><figcaption>${esc(c.name)}</figcaption></figure>`).join("") + '</div>';
-      } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
-    } else if (state.flowTab === "trace") {
-      try {
-        const r = await api(`/api/run/${id}/trace`);
-        const events = r.events || [];
-        if (!events.length) { box.innerHTML = '<div class="empty">暂无轨迹</div>'; return; }
-        box.innerHTML = '<div class="trace-timeline">' + events.map((e, i) => `
-          <div class="tl-item"><div class="tl-dot ${(e.event || "").includes("error") || e.error ? "error" : ""}"></div>
-          <div class="tl-content"><div class="tl-title">${esc(e.event || "step")}</div>
-          <div class="tl-meta">#${i + 1}${e.duration_ms != null ? " · " + e.duration_ms + " ms" : ""}${e.error ? " · " + esc(e.error) : ""}</div></div></div>
-        `).join("") + '</div>';
-      } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
-    }
-  }
-
-  document.addEventListener("DOMContentLoaded", init);
+  /* ---- 启动 ---- */
+  init();
 })();

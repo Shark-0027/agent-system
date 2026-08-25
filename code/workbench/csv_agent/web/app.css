@@ -884,3 +884,57 @@ table.data tr:nth-child(even) { background: #FAFBFE; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table th, .data-table td { padding: 8px 10px; border-bottom: 1px solid var(--ink-100); text-align: left; }
 .data-table th { background: var(--bg); font-weight: 500; }
+
+/* === 下载 tab === */
+.download-title { font-size: 16px; margin-bottom: 12px; }
+.download-list { display: flex; flex-direction: column; gap: 8px; }
+.download-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border: 1px solid var(--ink-100);
+  border-radius: var(--radius-sm); background: var(--surface);
+  text-decoration: none; color: var(--ink-700); cursor: pointer;
+  transition: all .15s ease;
+}
+.download-item:hover { border-color: var(--primary); background: var(--primary-50); color: var(--primary); }
+.download-item > span:first-child { font-size: 18px; }
+.download-item > span:nth-child(2) { flex: 1; font-size: 13px; }
+
+/* === 高级面板 === */
+.done-tab-adv { margin-left: auto; color: var(--ink-500); }
+.done-tab-adv.active { color: var(--violet); border-bottom-color: var(--violet); }
+.adv-panel { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; }
+@media (max-width: 768px) { .adv-panel { grid-template-columns: 1fr; } }
+.adv-section {
+  border: 1px solid var(--ink-100); border-radius: var(--radius-md);
+  padding: 16px; background: var(--surface);
+}
+.adv-section h3 { font-size: 14px; margin-bottom: 8px; }
+.adv-tool-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px; margin-top: 10px;
+}
+.tool-btn {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px; border: 1px solid var(--ink-100);
+  border-radius: var(--radius-sm); background: var(--surface);
+  cursor: pointer; text-align: left; font: inherit;
+}
+.tool-btn:hover { border-color: var(--primary); background: var(--primary-50); }
+.tool-btn.running { opacity: .6; pointer-events: none; }
+.tool-btn .t-name { font-size: 12px; font-weight: 500; color: var(--ink-900); }
+.tool-btn .t-desc { font-size: 11px; color: var(--ink-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* === 目标建议 chips === */
+.goal-suggest {
+  margin-top: 16px; padding: 14px;
+  background: var(--violet-50); border: 1px solid var(--violet);
+  border-radius: var(--radius-md);
+}
+.gs-label { font-size: 13px; font-weight: 500; color: var(--violet); margin-bottom: 8px; }
+.gs-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.gs-chip {
+  padding: 6px 12px; background: var(--surface); border: 1px solid var(--violet);
+  border-radius: var(--radius-pill); font-size: 12px; color: var(--violet);
+  cursor: pointer; transition: all .15s ease;
+}
+.gs-chip:hover { background: var(--violet); color: #fff; }
