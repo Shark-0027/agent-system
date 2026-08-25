@@ -621,14 +621,23 @@ def run_chat(rid: str, body: Dict[str, Any] = Body(...)):
         report_txt = ""
         p = root / "report.md"
         if p.exists():
-            report_txt = p.read_text(encoding="utf-8")[:1500]
+            report_txt = p.read_text(encoding="utf-8")[:3000]
+        # 对话历史（最近 3 轮）
+        history = body.get("history", [])
+        history_text = ""
+        if history:
+            history_text = "\n".join(
+                f"{'用户' if h.get('role') == 'user' else '助手'}: {str(h.get('content', ''))[:200]}"
+                for h in history[-6:]
+            )
         from code.workbench.csv_agent.servers.report_generator import _ctx_preview
         prompt = (
             "你是这份 CSV 数据分析结果的解答助手。请依据下面的数据分析产物与报告，"
             "用简洁中文回答用户问题；若产物不足以回答，请明确说明缺少哪方面数据。不要编造数值。\n"
             f"分析产物：\n{_ctx_preview(ctx)}\n"
             f"已生成报告：\n{report_txt}\n"
-            f"用户问题：{question}"
+            + (f"对话历史：\n{history_text}\n" if history_text else "")
+            + f"用户问题：{question}"
         )
         try:
             msg = llm.chat_completion([{"role": "user", "content": prompt}], temperature=0.2)
@@ -706,6 +715,51 @@ def run_explain(rid: str, body: Dict[str, Any] = Body(...)):
                    "used_llm": False})
 
 
+@app.post("/api/run/{rid}/explore")
+def run_explore(rid: str, body: Dict[str, Any] = Body(...)):
+    """即时数据探索：不修改原数据，基于 cleaned.csv 做筛选/分组/统计。"""
+    root = _run_root(rid)
+    workspace = Workspace(run_id=rid, root=root)
+    action = body.get("action", "describe")
+    params = body.get("params", {})
+    path = workspace.cleaned_csv if workspace.cleaned_csv.exists() else workspace.input_csv
+    if not path.exists():
+        raise HTTPException(404, "no csv data found")
+    df = pd.read_csv(path)
+
+    if action == "filter":
+        col = params.get("col", "")
+        op = params.get("op", ">")
+        val = params.get("value", 0)
+        if col in df.columns:
+            num = pd.to_numeric(df[col], errors="coerce")
+            ops = {">": num > float(val), "<": num < float(val), "==": num == float(val),
+                   ">=": num >= float(val), "<=": num <= float(val)}
+            mask = ops.get(op, num > float(val))
+            df = df[mask]
+        result = {"rows": len(df), "sample": df.head(20).astype(object).where(pd.notnull(df), None).to_dict(orient="records")}
+
+    elif action == "group":
+        group_col = params.get("group_col", "")
+        agg_col = params.get("agg_col", "")
+        agg_func = params.get("agg_func", "mean")
+        if group_col in df.columns and agg_col in df.columns:
+            grouped = df.groupby(group_col)[agg_col].agg(agg_func).reset_index()
+            result = {"groups": grouped.to_dict(orient="records")}
+
+    elif action == "describe":
+        result = df.describe(include="all").round(4).fillna("").to_dict()
+
+    elif action == "correlate":
+        cols = [c for c in params.get("cols", df.select_dtypes(include="number").columns.tolist()) if c in df.columns]
+        result = {"matrix": df[cols].corr().round(4).to_dict()}
+
+    else:
+        result = {"error": f"unknown action: {action}"}
+
+    return _clean({"success": True, "action": action, "result": result})
+
+
 @app.get("/api/run/{rid}/charts")
 def run_charts(rid: str):
     root = _run_root(rid)
@@ -723,6 +777,32 @@ def run_chart(rid: str, name: str = Query(...)):
     if not p.is_relative_to((root / "charts").resolve()) or not p.exists():
         raise HTTPException(404, "chart not found")
     return FileResponse(str(p), media_type="image/png")
+
+
+@app.get("/api/run/{rid}/chart_data")
+def get_chart_data(rid: str, name: str = Query(...)):
+    """返回图表的原始数据（JSON），供前端 Plotly 渲染交互式图表。"""
+    root = _run_root(rid)
+    workspace = Workspace(run_id=rid, root=root)
+    chart_map = {
+        "dist_fit.png": ("stats_distfit.json", "dist_fit"),
+        "outliers.png": ("stats_anomaly.json", "anomaly"),
+        "corr_heatmap.png": ("stats_corr.json", "corr"),
+        "cluster.png": ("stats_cluster.json", "cluster"),
+        "regression_fit.png": ("stats_regression.json", "regression"),
+        "trend.png": ("stats_timeseries.json", "timeseries"),
+        "forecast.png": ("forecast.json", "forecast"),
+        "pca.png": ("stats_pca.json", "pca"),
+    }
+    json_name, chart_type = chart_map.get(name, (None, None))
+    if not json_name:
+        raise HTTPException(404, f"no chart data mapping for {name}")
+    data = workspace.load_json(json_name)
+    if not data:
+        raise HTTPException(404, f"{json_name} not found")
+    csv_path = workspace.cleaned_csv if workspace.cleaned_csv.exists() else workspace.input_csv
+    df = pd.read_csv(csv_path)
+    return _clean({"chart_type": chart_type, "meta": data, "raw_columns": list(df.columns)})
 
 
 @app.get("/api/run/{rid}/download")

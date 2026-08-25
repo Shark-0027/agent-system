@@ -24,11 +24,38 @@ def csv_load(ws: Workspace, params: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": f"read error: {e}"}
     missing = {c: int(df[c].isna().sum()) for c in df.columns}
+    # 数据画像：每列的类别/唯一性/偏度/Top值，供 Planner 做数据感知规划
+    column_profiles = {}
+    for c in df.columns:
+        prof = {"dtype": str(df[c].dtype)}
+        if pd.api.types.is_numeric_dtype(df[c]):
+            prof["category"] = "numeric"
+            prof["unique_count"] = int(df[c].nunique())
+            prof["unique_ratio"] = round(float(df[c].nunique() / len(df)), 4) if len(df) else 0
+            s = df[c].dropna()
+            if len(s) > 0:
+                try:
+                    prof["skewness"] = round(float(s.skew()), 4)
+                except Exception:
+                    prof["skewness"] = None
+                prof["mean"] = round(float(s.mean()), 4)
+                prof["std"] = round(float(s.std()), 4) if s.std() == s.std() else None  # NaN check
+        else:
+            prof["category"] = "datetime" if ("date" in c.lower() or "time" in c.lower()) else "categorical"
+            prof["cardinality"] = int(df[c].nunique())
+            top = df[c].value_counts().head(5)
+            prof["top_values"] = {str(k): int(v) for k, v in top.items()}
+        column_profiles[c] = prof
+    # 目标列启发式推荐：列名含 price/target/label/y/sales/amount/count/value
+    target_hints = [c for c in df.columns if any(k in c.lower() for k in
+                    ("price", "target", "label", "y", "sales", "amount", "count", "value"))]
     info = {"success": True, "rows": int(len(df)), "cols": int(len(df.columns)),
             "columns": list(map(str, df.columns)),
             "dtypes": {c: str(df[c].dtype) for c in df.columns},
             "missing": missing,
-            "sample": df.head(5).astype(object).to_dict(orient="records")}
+            "sample": df.head(5).astype(object).to_dict(orient="records"),
+            "column_profiles": column_profiles,
+            "target_hints": target_hints}
     ws.save_json(info, "schema.json")
     return info
 

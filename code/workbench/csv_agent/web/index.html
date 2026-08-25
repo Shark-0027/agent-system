@@ -35,7 +35,6 @@
           <p class="lead">AI 驱动的全流程数据分析平台，自动理解数据、智能编排任务，生成可视化报告与洞察，释放数据价值。</p>
           <div class="hero-actions">
             <button class="btn btn-primary btn-lg" id="homeUploadBtn"><span>↑</span> 上传 CSV 开始分析</button>
-            <button class="btn btn-outline btn-lg" id="homeSampleBtn">试用样例数据</button>
             <button class="btn btn-ghost btn-lg" id="homeWorkbenchBtn">进入工作台</button>
           </div>
           <p class="hero-note">支持 .csv 格式，最大 200MB · 本地规则或 LLM 智能编排</p>
@@ -128,6 +127,7 @@
             <button class="toolbar-tab active" data-tab="data">数据预览</button>
             <button class="toolbar-tab" data-tab="tools">分步工具</button>
             <button class="toolbar-tab" data-tab="tool-result">工具结果</button>
+            <button class="toolbar-tab" data-tab="explore">数据探索</button>
             <button class="toolbar-tab" data-tab="charts">图表</button>
             <button class="toolbar-tab" data-tab="report">报告</button>
             <button class="toolbar-tab" data-tab="trace">执行轨迹</button>
@@ -268,6 +268,7 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=15"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <script src="/web/app.js?v=18"></script>
 </body>
 </html>

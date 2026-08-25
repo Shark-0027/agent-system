@@ -25,6 +25,9 @@
     time_series_feat: "时间序列", cluster_profile: "聚类分析", anomaly_detect: "离群点检测",
     dist_fit: "分布拟合", pca_decompose: "主成分分析", data_quality: "数据质量体检",
     nl_filter: "智能查数", nl_agg: "分组聚合", nl_insight: "智能洞察",
+    missing_pattern: "缺失模式分析", feature_select: "特征选择",
+    time_series_forecast: "时序预测", ab_test: "A/B实验",
+    sample_size_calc: "样本量计算", table_join: "多表关联",
   };
 
   const TOOL_GROUP = {
@@ -33,11 +36,93 @@
     model_classify: "model", report_generate: "report", corr_analysis: "stats", hypo_test: "stats",
     regression_fit: "stats", time_series_feat: "stats", cluster_profile: "stats", anomaly_detect: "stats",
     dist_fit: "stats", pca_decompose: "stats", nl_filter: "nl", nl_agg: "nl", nl_insight: "nl",
+    missing_pattern: "hygiene", feature_select: "feature",
+    time_series_forecast: "stats", ab_test: "stats",
+    sample_size_calc: "stats", table_join: "clean",
   };
 
   const GROUP_NAME = {
     load: "加载与概览", clean: "数据清洗", feature: "特征工程", stats: "统计分析",
     visual: "可视化", model: "建模", report: "报告", nl: "自然语言", hygiene: "质量体检",
+  };
+
+  // 工具参数配置表：声明每个工具支持的参数及 UI 类型
+  const TOOL_PARAMS = {
+    data_clean: [
+      { key: "fill", label: "缺失填充", type: "select", options: ["median", "mean"], default: "median" },
+      { key: "strategy", label: "填充策略", type: "select", options: ["simple", "knn", "group"], default: "simple" },
+      { key: "outlier_method", label: "异常值处理", type: "select", options: ["iqr", "zscore", "isoforest", "mark"], default: "iqr" },
+      { key: "group_col", label: "分组列(group策略用)", type: "input", default: "" },
+    ],
+    hypo_test: [
+      { key: "test_type", label: "检验类型", type: "select",
+        options: ["normality", "ttest", "anova", "chi2", "wilcoxon", "mannwhitney", "ks"], default: "normality" },
+      { key: "col", label: "检验列", type: "input", default: "" },
+      { key: "group", label: "分组列", type: "input", default: "" },
+      { key: "col2", label: "第二列(卡方用)", type: "input", default: "" },
+    ],
+    model_train: [
+      { key: "target", label: "目标列", type: "input", default: "" },
+      { key: "models", label: "模型", type: "input", default: "lr,rf" },
+      { key: "cv_folds", label: "CV折数", type: "input", default: "0" },
+      { key: "tune", label: "超参调优", type: "checkbox", default: false },
+    ],
+    feature_engineer: [
+      { key: "encode", label: "分类编码", type: "checkbox", default: true },
+      { key: "scale", label: "标准化", type: "checkbox", default: true },
+      { key: "interaction", label: "交互特征", type: "checkbox", default: false },
+      { key: "binning", label: "分箱", type: "checkbox", default: false },
+      { key: "datetime_feat", label: "日期特征", type: "checkbox", default: false },
+    ],
+    feature_select: [
+      { key: "method", label: "选择方法", type: "select", options: ["vif", "mutual_info", "rfe"], default: "vif" },
+      { key: "target", label: "目标列", type: "input", default: "" },
+    ],
+    time_series_forecast: [
+      { key: "method", label: "预测方法", type: "select", options: ["arima", "exponential", "naive"], default: "arima" },
+      { key: "date", label: "日期列", type: "input", default: "" },
+      { key: "col", label: "数值列", type: "input", default: "" },
+      { key: "steps", label: "预测步数", type: "input", default: "10" },
+    ],
+    ab_test: [
+      { key: "group_col", label: "分组列", type: "input", default: "" },
+      { key: "metric_col", label: "指标列", type: "input", default: "" },
+      { key: "test", label: "检验方法", type: "select", options: ["ttest", "mannwhitney", "proportion"], default: "ttest" },
+    ],
+    sample_size_calc: [
+      { key: "effect_size", label: "效应量", type: "input", default: "0.5" },
+      { key: "alpha", label: "显著性水平", type: "input", default: "0.05" },
+      { key: "power", label: "统计功效", type: "input", default: "0.8" },
+    ],
+    table_join: [
+      { key: "left_table", label: "左表", type: "input", default: "input.csv" },
+      { key: "right_table", label: "右表", type: "input", default: "input_2.csv" },
+      { key: "left_on", label: "左表关联键", type: "input", default: "" },
+      { key: "right_on", label: "右表关联键", type: "input", default: "" },
+      { key: "how", label: "关联方式", type: "select", options: ["inner", "left", "right", "outer"], default: "inner" },
+    ],
+    anomaly_detect: [
+      { key: "col", label: "检测列", type: "input", default: "" },
+      { key: "threshold", label: "阈值(Z-score)", type: "input", default: "3" },
+    ],
+    dist_fit: [
+      { key: "col", label: "拟合列", type: "input", default: "" },
+      { key: "positive_only", label: "仅正值", type: "checkbox", default: true },
+    ],
+    cluster_profile: [
+      { key: "k", label: "聚类数", type: "input", default: "3" },
+    ],
+    pca_decompose: [
+      { key: "n_components", label: "主成分数", type: "input", default: "2" },
+    ],
+    regression_fit: [
+      { key: "feature", label: "特征列", type: "input", default: "" },
+      { key: "target", label: "目标列", type: "input", default: "" },
+      { key: "degree", label: "多项式阶数", type: "input", default: "1" },
+    ],
+    model_classify: [
+      { key: "target", label: "目标列", type: "input", default: "" },
+    ],
   };
 
   function toast(msg, isErr = false) {
@@ -176,15 +261,6 @@
   /* ---- 首页 ---- */
   function bindHome() {
     $("#homeUploadBtn").addEventListener("click", () => showView("flow"));
-    $("#homeSampleBtn").addEventListener("click", async () => {
-      try {
-        const r = await api("/api/sample");
-        state.runId = r.run_id;
-        await loadRuns();
-        showView("workbench");
-        toast("已生成样例数据");
-      } catch (e) { toast(e.message, true); }
-    });
     $("#homeWorkbenchBtn").addEventListener("click", () => showView("workbench"));
   }
 
@@ -368,6 +444,7 @@
     if (state.wbTab === "data") loadData();
     else if (state.wbTab === "tools") renderToolsTab();
     else if (state.wbTab === "tool-result") renderToolResult();
+    else if (state.wbTab === "explore") renderExplore();
     else if (state.wbTab === "charts") loadCharts();
     else if (state.wbTab === "report") loadReport();
     else if (state.wbTab === "trace") loadTrace();
@@ -425,7 +502,9 @@
     let html = `<div class="panel-card"><h3>工具结果 · ${esc(label)}</h3>`;
     html += toolExplainPlaceholder();
     if (data.chart) {
-      html += `<figure class="chart-card chart-single"><img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(data.chart)}" alt="${esc(data.chart)}"><figcaption>${esc(data.chart)}</figcaption></figure>`;
+      // 优先尝试 Plotly 交互式渲染，不可用时降级为 PNG
+      html += `<div id="plotlyChart" class="chart-card chart-single"></div>`;
+      setTimeout(() => loadInteractiveChart(data.chart, tool, data), 50);
     }
     // 数组字段（如 results）渲染成表格
     Object.entries(data).forEach(([k, v]) => {
@@ -449,6 +528,187 @@
     box.innerHTML = html;
     // 异步加载 LLM 解释
     loadToolExplain(tool, data);
+  }
+
+  // 交互式图表：优先 Plotly，降级 PNG
+  async function loadInteractiveChart(chartName, tool, data) {
+    const container = $("#plotlyChart");
+    if (!container) return;
+    if (typeof Plotly === "undefined") {
+      container.innerHTML = `<img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(chartName)}" alt="${esc(chartName)}" style="max-width:100%">`;
+      return;
+    }
+    try {
+      const r = await api(`/api/run/${state.runId}/chart_data?name=${encodeURIComponent(chartName)}`);
+      renderPlotlyChart(r, tool, data, container);
+    } catch (e) {
+      container.innerHTML = `<img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(chartName)}" alt="${esc(chartName)}" style="max-width:100%">`;
+    }
+  }
+
+  function renderPlotlyChart(r, tool, data, container) {
+    const type = r.chart_type;
+    if (type === "dist_fit") {
+      api(`/api/run/${state.runId}/data?which=cleaned-or-input`).then(d => {
+        const col = data.col;
+        const values = (d.rows || []).map(row => parseFloat(row[col])).filter(v => !isNaN(v));
+        Plotly.newPlot(container, [
+          { x: values, type: "histogram", name: "实际数据", opacity: 0.6, nbinsx: 30, marker: { color: "#4c8bf5" } },
+        ], { title: `${col} 分布拟合`, xaxis: { title: col }, yaxis: { title: "频数" },
+          margin: { l: 50, r: 20, t: 40, b: 40 } }, { responsive: true });
+      }).catch(() => { container.innerHTML = `<img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(data.chart)}" style="max-width:100%">`; });
+    } else if (type === "anomaly") {
+      const outliers = (data.outliers || []).map(o => o.value);
+      Plotly.newPlot(container, [{ y: outliers, mode: "markers", type: "scatter", name: "离群点",
+        marker: { color: "red", size: 8 } }], { title: "离群点检测" }, { responsive: true });
+    } else if (type === "cluster" && r.meta) {
+      const profiles = r.meta.profiles || {};
+      const groups = Object.keys(profiles);
+      const firstKey = groups[0] || "0";
+      const cols = Object.keys(profiles[firstKey] || {});
+      const traces = cols.map((c, i) => ({
+        x: groups, y: groups.map(g => (profiles[g] || {})[c] || 0),
+        type: "bar", name: c,
+      }));
+      Plotly.newPlot(container, traces, { title: "聚类画像", barmode: "group" }, { responsive: true });
+    } else if (type === "forecast" && r.meta) {
+      const fc = r.meta.forecast || [];
+      Plotly.newPlot(container, [
+        { y: fc, type: "scatter", mode: "lines", name: "预测", line: { color: "#e5532f", width: 2 } },
+      ], { title: "时序预测" }, { responsive: true });
+    } else {
+      container.innerHTML = `<img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(data.chart)}" style="max-width:100%">`;
+    }
+  }
+
+  // 数据探索：即时筛选/分组/统计，不修改原数据
+  const EXPLORE_ACTIONS = [
+    { value: "describe", label: "描述统计" },
+    { value: "filter", label: "条件筛选" },
+    { value: "group", label: "分组聚合" },
+    { value: "correlate", label: "相关性矩阵" },
+  ];
+  const exploreState = { action: "describe", cols: [] };
+
+  async function renderExplore() {
+    const box = $("#wbContent");
+    if (!state.runId) return;
+    // 拉取列名以填充下拉
+    try {
+      const d = await api(`/api/run/${state.runId}/data?which=auto`);
+      exploreState.cols = d.columns || [];
+    } catch (e) { exploreState.cols = []; }
+    box.innerHTML = `<div class="panel-card"><h3>数据探索 <span class="small muted">基于 cleaned.csv（无则 input.csv），不修改原数据</span></h3>
+      <div class="field-group" style="margin-bottom:12px">
+        <label>探索方式</label>
+        <select id="exploreAction" class="run-search">
+          ${EXPLORE_ACTIONS.map((a) => `<option value="${a.value}"${a.value === exploreState.action ? " selected" : ""}>${esc(a.label)}</option>`).join("")}
+        </select>
+      </div>
+      <div id="exploreParams"></div>
+      <div class="flex gap-8" style="margin-top:10px">
+        <button class="btn btn-sm btn-primary" id="exploreRunBtn">执行</button>
+      </div>
+      <div id="exploreResult" style="margin-top:14px"></div>
+    </div>`;
+    renderExploreParams();
+    $("#exploreAction").addEventListener("change", (e) => {
+      exploreState.action = e.target.value;
+      renderExploreParams();
+    });
+    $("#exploreRunBtn").addEventListener("click", runExplore);
+  }
+
+  function renderExploreParams() {
+    const box = $("#exploreParams");
+    const action = exploreState.action;
+    const colOpts = exploreState.cols.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    let html = "";
+    if (action === "filter") {
+      html = `<div class="flex gap-8" style="flex-wrap:wrap;align-items:end">
+        <label class="field" style="margin:0"><span>列</span><select id="exCol" class="run-search">${colOpts}</select></label>
+        <label class="field" style="margin:0"><span>运算符</span>
+          <select id="exOp" class="run-search">${[">", "<", "==", ">=", "<="].map((o) => `<option value="${o}">${o}</option>`).join("")}</select></label>
+        <label class="field" style="margin:0"><span>值</span><input id="exVal" class="run-search" type="number" step="any" value="0"></label>
+      </div>`;
+    } else if (action === "group") {
+      html = `<div class="flex gap-8" style="flex-wrap:wrap;align-items:end">
+        <label class="field" style="margin:0"><span>分组列</span><select id="exGroupCol" class="run-search">${colOpts}</select></label>
+        <label class="field" style="margin:0"><span>聚合列</span><select id="exAggCol" class="run-search">${colOpts}</select></label>
+        <label class="field" style="margin:0"><span>聚合函数</span>
+          <select id="exAggFunc" class="run-search">${["mean", "sum", "count", "min", "max"].map((f) => `<option value="${f}">${f}</option>`).join("")}</select></label>
+      </div>`;
+    } else if (action === "correlate") {
+      html = `<div class="field-group">
+        <label>数值列 <span class="muted small">（留空则自动选所有数值列；多列用逗号分隔）</span></label>
+        <input id="exCols" class="run-search" placeholder="如 sales,quantity">
+      </div>`;
+    } else {
+      html = `<p class="small muted">描述统计无需额外参数，直接点「执行」。</p>`;
+    }
+    box.innerHTML = html;
+  }
+
+  async function runExplore() {
+    if (!state.runId) { toast("请先选择运行", true); return; }
+    const action = exploreState.action;
+    const params = {};
+    if (action === "filter") {
+      params.col = $("#exCol")?.value || "";
+      params.op = $("#exOp")?.value || ">";
+      params.value = parseFloat($("#exVal")?.value || "0");
+    } else if (action === "group") {
+      params.group_col = $("#exGroupCol")?.value || "";
+      params.agg_col = $("#exAggCol")?.value || "";
+      params.agg_func = $("#exAggFunc")?.value || "mean";
+    } else if (action === "correlate") {
+      const raw = ($("#exCols")?.value || "").trim();
+      if (raw) params.cols = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    const out = $("#exploreResult");
+    out.innerHTML = '<p class="muted">执行中…</p>';
+    try {
+      const r = await api(`/api/run/${state.runId}/explore`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, params }),
+      });
+      out.innerHTML = renderExploreResult(action, r.result);
+      toast("探索完成");
+    } catch (e) {
+      out.innerHTML = `<p class="muted">执行失败：${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderExploreResult(action, result) {
+    if (!result) return '<p class="muted">无结果</p>';
+    if (result.error) return `<p class="muted">${esc(result.error)}</p>`;
+    let html = "";
+    if (action === "filter") {
+      html += `<p class="small muted">筛选后共 ${result.rows ?? 0} 行</p>`;
+      html += objTable(result.sample || []);
+    } else if (action === "group") {
+      html += objTable(result.groups || []);
+    } else if (action === "describe") {
+      // describe 返回 {col: {stat: val}}，转成行表格
+      const stats = Object.keys(result);
+      const cols = stats.length ? Object.keys(result[stats[0]] || {}) : [];
+      const rows = cols.map((c) => {
+        const row = { 统计: c };
+        stats.forEach((s) => { row[s] = result[s][c]; });
+        return row;
+      });
+      html += objTable(rows);
+    } else if (action === "correlate") {
+      const matrix = result.matrix || {};
+      const cols = Object.keys(matrix);
+      const rows = cols.map((c) => {
+        const row = { "": c };
+        cols.forEach((c2) => { row[c2] = matrix[c][c2]; });
+        return row;
+      });
+      html += objTable(rows);
+    }
+    return html || '<p class="muted">无结果</p>';
   }
 
   async function loadRunInfoShort() {
@@ -488,14 +748,85 @@
 
   function renderToolsTab() {
     const box = $("#wbContent");
-    box.innerHTML = '<div class="panel-card"><h3>分步分析工具</h3><div class="tool-grid" id="wbToolGrid"></div></div>';
-    const grid = $("#wbToolGrid");
+    // 按分组组织工具
+    const groups = {};
     state.tools.forEach((t) => {
-      const btn = document.createElement("button");
-      btn.className = "tool-btn";
-      btn.innerHTML = `<span class="t-name">${esc(TOOL_LABEL[t.name] || t.name)}</span><span class="t-desc">${esc(t.description || "")}</span>`;
-      btn.addEventListener("click", () => runTool(t.name, btn));
-      grid.appendChild(btn);
+      const g = TOOL_GROUP[t.name] || "other";
+      (groups[g] = groups[g] || []).push(t);
+    });
+    const groupOrder = ["load", "hygiene", "clean", "feature", "stats", "visual", "model", "report", "nl"];
+    let html = '<div class="panel-card"><h3>分步分析工具</h3>';
+    groupOrder.forEach((g) => {
+      if (!groups[g]) return;
+      html += `<div class="tool-group"><div class="tool-group-title">${esc(GROUP_NAME[g] || g)}</div><div class="tool-grid">`;
+      groups[g].forEach((t) => {
+        const label = esc(TOOL_LABEL[t.name] || t.name);
+        const desc = esc(t.description || "");
+        const hasParams = !!TOOL_PARAMS[t.name];
+        html += `<div class="tool-card" data-tool="${esc(t.name)}">
+          <button class="tool-btn${hasParams ? " has-params" : ""}" data-tool="${esc(t.name)}">
+            <span class="t-name">${label}</span>
+            <span class="t-desc">${desc}</span>
+            ${hasParams ? '<span class="t-arrow">⚙</span>' : ''}
+          </button>
+          ${hasParams ? `<div class="tool-params" id="params-${esc(t.name)}" style="display:none"></div>` : ''}
+        </div>`;
+      });
+      html += '</div></div>';
+    });
+    html += '</div>';
+    box.innerHTML = html;
+
+    // 绑定点击事件
+    $$(".tool-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const name = btn.dataset.tool;
+        const paramsBox = $(`#params-${name}`);
+        if (paramsBox && TOOL_PARAMS[name]) {
+          // 切换参数面板显示
+          const isVisible = paramsBox.style.display !== "none";
+          $$(".tool-params").forEach((p) => (p.style.display = "none"));
+          $$(".tool-btn").forEach((b) => b.classList.remove("expanded"));
+          if (!isVisible) {
+            renderToolParams(name, paramsBox);
+            paramsBox.style.display = "block";
+            btn.classList.add("expanded");
+          }
+        } else {
+          // 无参数工具直接执行
+          runTool(name, btn);
+        }
+      });
+    });
+  }
+
+  function renderToolParams(toolName, container) {
+    const params = TOOL_PARAMS[toolName] || [];
+    let html = '<div class="param-form">';
+    params.forEach((p) => {
+      if (p.type === "select") {
+        html += `<label class="param-item"><span class="param-label">${esc(p.label)}</span>
+          <select id="param-${p.key}">
+            ${p.options.map((o) => `<option value="${o}" ${o === p.default ? "selected" : ""}>${o}</option>`).join("")}
+          </select></label>`;
+      } else if (p.type === "checkbox") {
+        html += `<label class="param-item checkbox"><input type="checkbox" id="param-${p.key}" ${p.default ? "checked" : ""}>
+          <span class="param-label">${esc(p.label)}</span></label>`;
+      } else {
+        html += `<label class="param-item"><span class="param-label">${esc(p.label)}</span>
+          <input id="param-${p.key}" type="text" value="${esc(String(p.default))}" placeholder="${esc(p.label)}"></label>`;
+      }
+    });
+    html += `<button class="btn btn-primary btn-sm tool-run-btn" id="run-${toolName}">执行 ${esc(TOOL_LABEL[toolName] || toolName)}</button></div>`;
+    container.innerHTML = html;
+    $(`#run-${toolName}`).addEventListener("click", () => {
+      const params = {};
+      TOOL_PARAMS[toolName].forEach((p) => {
+        const el = $(`#param-${p.key}`);
+        if (p.type === "checkbox") params[p.key] = el.checked;
+        else if (el.value && el.value !== p.default) params[p.key] = el.value;
+      });
+      runTool(toolName, $(`#run-${toolName}`), params);
     });
   }
 
@@ -617,14 +948,17 @@
   // 会修改数据文件、需要立即回看数据的工具（执行后仍跳数据预览）
   const DATA_MUTATORS = ["data_clean", "feature_engineer"];
 
-  async function runTool(name, btn) {
+  async function runTool(name, btn, externalParams = {}) {
     if (!state.runId) { toast("请先选择运行", true); return; }
-    const params = {};
-    if (name === "eda_plot") params.kind = "all";
-    if (name === "data_clean") params.fill = "median";
-    if (name === "nl_filter") params.question = "销售额最高的前10条";
-    if (name === "nl_agg") params.question = "按地区汇总销售额";
-    if (name === "nl_insight") params.question = "整体销售额表现如何";
+    const params = { ...externalParams };
+    // 仅在没有外部参数时使用旧的默认逻辑（向后兼容）
+    if (Object.keys(externalParams).length === 0) {
+      if (name === "eda_plot") params.kind = "all";
+      if (name === "data_clean") params.fill = "median";
+      if (name === "nl_filter") params.question = "销售额最高的前10条";
+      if (name === "nl_agg") params.question = "按地区汇总销售额";
+      if (name === "nl_insight") params.question = "整体销售额表现如何";
+    }
     btn?.classList.add("running");
     toast(`执行 ${TOOL_LABEL[name] || name} …`);
     try {
@@ -730,19 +1064,6 @@
     bar.querySelector(".fs-name").textContent = file.name;
     bar.querySelector(".fs-size").textContent = formatBytes(file.size || 0);
     $("#flowFileNameHint").style.display = "none";
-  }
-
-  async function startFlowWithSample() {
-    $("#flowProgress").style.display = "block";
-    resetFlowProgress();
-    try {
-      const r = await api("/api/sample");
-      state.flowRunId = r.run_id;
-      await loadRuns();
-      loadGoalSuggest(state.flowRunId); // 展示基于样例数据的分析建议
-      const goal = $("#flowGoal").value.trim() || "分析样例销售数据，找出关键趋势并生成报告";
-      runFlowAnalyze(goal);
-    } catch (e) { flowError(e.message); }
   }
 
   async function startFlow() {

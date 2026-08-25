@@ -34,7 +34,8 @@ def collect_context(ws, schema, model_metrics, charts_meta=None) -> Dict[str, An
     """汇总工作区中已生成的分析产物，形成紧凑的数据背景，供 LLM / 规则共同消费。"""
     ctx: Dict[str, Any] = {"schema": schema or {}, "model": model_metrics or {}}
     for name in ("stats_corr", "stats_hyptest", "stats_timeseries", "stats_anomaly",
-                 "stats_distfit", "stats_cluster", "stats_pca", "stats_regression", "data_summary"):
+                 "stats_distfit", "stats_cluster", "stats_pca", "stats_regression",
+                 "data_summary", "forecast", "feature_selected", "missing_pattern", "ab_test"):
         v = ws.load_json(f"{name}.json")
         if v:
             ctx[name] = v
@@ -46,12 +47,17 @@ def collect_context(ws, schema, model_metrics, charts_meta=None) -> Dict[str, An
     return ctx
 
 
-def _ctx_preview(ctx: Dict[str, Any], limit: int = 1200) -> str:
+def _ctx_preview(ctx: Dict[str, Any], limit: int = 3000) -> str:
     """把分析产物上下文压缩成一段紧凑文本，控制喂给 LLM 的 token 量。"""
     compact = {}
     schema = ctx.get("schema") or {}
     if schema:
-        compact["数据概览"] = {k: schema.get(k) for k in ("rows", "cols", "columns", "missing")}
+        compact["数据概览"] = {k: schema.get(k) for k in ("rows", "cols", "columns", "missing", "target_hints")}
+        # 列画像紧凑版
+        profiles = schema.get("column_profiles", {})
+        if profiles:
+            compact["列画像"] = {c: {"cat": p.get("category"), "unique": p.get("unique_count", p.get("cardinality")),
+                                   "skew": p.get("skewness")} for c, p in profiles.items()}
     model = ctx.get("model") or {}
     if model:
         compact["建模"] = {
@@ -60,9 +66,14 @@ def _ctx_preview(ctx: Dict[str, Any], limit: int = 1200) -> str:
                      for k, v in (model.get("results") or {}).items()},
             "特征重要性Top": (model.get("importance") or [])[:5],
         }
+    # 补全所有产物（修复此前遗漏 cluster/pca/regression + 新增产物）
     for src, label in (("stats_corr", "相关性"), ("stats_hyptest", "检验"),
                        ("stats_timeseries", "时序"), ("stats_anomaly", "离群"),
-                       ("stats_distfit", "分布"), ("data_summary", "汇总")):
+                       ("stats_distfit", "分布"), ("stats_cluster", "聚类"),
+                       ("stats_pca", "PCA"), ("stats_regression", "回归"),
+                       ("data_summary", "汇总"), ("forecast", "预测"),
+                       ("feature_selected", "特征选择"), ("missing_pattern", "缺失模式"),
+                       ("ab_test", "AB实验")):
         if ctx.get(src):
             compact[label] = ctx[src]
     if ctx.get("charts"):
@@ -133,7 +144,11 @@ def _llm_conclusions(goal, schema, model_metrics, ctx, llm) -> list:
 
 
 def report_generate(ws, params, llm=None):
-    goal = params.get("goal", "数据分析")
+    # 优先从 params 读取 goal，其次从 goal.json（orchestrator 持久化的用户目标）
+    goal = params.get("goal")
+    if not goal:
+        goal_data = ws.load_json("goal.json") or {}
+        goal = goal_data.get("goal", "数据分析")
     schema = ws.load_json("schema.json") or {}
     model_metrics = ws.load_json("model_metrics.json") or {}
     ctx = collect_context(ws, schema, model_metrics)

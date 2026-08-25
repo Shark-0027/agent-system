@@ -358,6 +358,23 @@ table.data tr:nth-child(even) { background: #FAFBFE; }
 .tool-btn .t-name { font-weight: 600; font-size: 13px; color: var(--ink-900); display: block; margin-bottom: 4px; }
 .tool-btn .t-desc { font-size: 11px; color: var(--ink-400); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
+/* 工具分组与参数面板 */
+.tool-group { margin-bottom: 16px; }
+.tool-group-title { font-size: 13px; font-weight: 600; color: var(--ink-500); margin-bottom: 8px; padding-left: 4px; }
+.tool-card { position: relative; }
+.tool-btn.has-params .t-arrow { position: absolute; top: 8px; right: 8px; font-size: 14px; color: var(--ink-300); transition: transform 0.2s; }
+.tool-btn.expanded .t-arrow { transform: rotate(180deg); }
+.tool-params { margin-top: 8px; padding: 12px; background: var(--bg); border-radius: var(--radius); border: 1px solid var(--ink-100); animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.param-form { display: flex; flex-direction: column; gap: 10px; }
+.param-item { display: flex; flex-direction: column; gap: 4px; }
+.param-item.checkbox { flex-direction: row; align-items: center; gap: 6px; }
+.param-label { font-size: 12px; font-weight: 500; color: var(--ink-600); }
+.param-item input[type="text"], .param-item select { padding: 6px 8px; border: 1px solid var(--ink-200); border-radius: 6px; font-size: 13px; background: var(--surface); color: var(--ink-900); }
+.param-item input:focus, .param-item select:focus { outline: none; border-color: var(--primary); }
+.param-item.checkbox input { width: 16px; height: 16px; }
+.tool-run-btn { align-self: flex-start; margin-top: 4px; }
+
 /* 图表 */
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .chart-card { border: 1px solid var(--ink-100); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); }

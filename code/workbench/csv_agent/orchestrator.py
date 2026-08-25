@@ -6,8 +6,9 @@ from typing import Any, Dict, List, Optional
 from code.workbench.csv_agent.bridge import build_tool_registry
 from code.workbench.csv_agent.memory import MemoryStore
 from code.workbench.csv_agent.workspace import Workspace, WorkspaceContext
-from code.framework.agent_runtime import LLMClient, SessionManager, TraceLogger
+from code.framework.agent_runtime import LLMClient, SessionManager
 from code.framework.planner_executor import PlannerExecutorAgent, ToolRegistry
+from code.framework.planner_executor.executor import TraceLogger
 
 
 class CsvAgent:
@@ -35,7 +36,7 @@ class CsvAgent:
         self.llm = LLMClient(**(llm_config or {})) if use_llm else None
         self.tool_registry: ToolRegistry = build_tool_registry()
         self.session_manager = SessionManager()
-        self.trace_logger = TraceLogger("csv_agent")
+        self.trace_logger = TraceLogger()
         self.memory = memory or MemoryStore()
         self.agent = PlannerExecutorAgent(
             llm_client=self.llm,
@@ -50,6 +51,8 @@ class CsvAgent:
         # 1. 注入当前工作区，工具据此读写文件
         WorkspaceContext.push(workspace)
         try:
+            # 1b. 持久化 goal 供 report_generate 等工具读取
+            workspace.save_json({"goal": goal}, "goal.json")
             # 2. 先跑一次 csv_load，得到 schema 供规划上下文 + 记录历史
             loader = self.tool_registry.get("csv_load")
             schema = loader.execute(description="加载数据", params={"ws": str(workspace.root)})
@@ -71,7 +74,7 @@ class CsvAgent:
                     "events": traces,
                     "summary": result.get("trace"),
                     "duration": result.get("duration", 0.0),
-                    "node_count": (result.get("plan") or {}).get("node_count", 0),
+                    "node_count": len((result.get("plan") or {}).get("nodes", [])),
                     "error": result.get("error"),
                 }, "trace.json")
             # 4. 若未自动生成报告，兜底调一次 report_generate（params 含 goal 与 ws）

@@ -61,6 +61,16 @@ PLANNER_SYSTEM_PROMPT = """你是一个专业的任务规划师。你的职责�
 - 如果子任务 A 依赖 B，表示 B 必须先于 A 执行
 - 无依赖的子任务可以并行执行
 - 不能形成循环依赖
+
+## 数据分析专项规则
+1. 如果目标列是分类变量（cardinality<20且非数值），使用 model_classify 而非 model_train
+2. 如果目标列是数值变量，使用 model_train
+3. 如果数据有日期列且目标是预测，在 time_series_feat 后加 time_series_forecast
+4. 数据清洗后先执行 data_quality 检查质量
+5. 如果缺失率高（>20%），增加 missing_pattern 分析步骤
+6. 特征工程后可加 feature_select 做特征筛选
+7. 分析流程通常为：data_clean → data_quality → [feature_engineer → feature_select] → 统计分析 → 建模 → report_generate
+8. 上下文中的 target_hints 是系统推荐的目标列，优先使用
 """
 
 # 简单任务的关键词模式
