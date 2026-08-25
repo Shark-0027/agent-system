@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI 数据分析 Agent 工作台</title>
-  <link rel="stylesheet" href="/web/app.css?v=22">
+  <link rel="stylesheet" href="/web/app.css?v=23">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -17,6 +17,10 @@
       <div class="logo-mark">AI</div>
       <div class="brand-title">AI 数据分析 <span>Agent</span></div>
     </div>
+    <nav class="mode-nav" id="modeNav">
+      <button class="mode-nav-btn active" data-mode="flow">🚀 全流程分析</button>
+      <button class="mode-nav-btn" data-mode="workbench">🛠 工作台</button>
+    </nav>
     <div class="top-actions">
       <span class="mode-badge" id="modeBadge"><span class="dot"></span><span id="modeText">—</span></span>
       <button class="btn btn-ghost btn-sm" id="llmConfigBtn">LLM 配置</button>
@@ -107,6 +111,6 @@
   </div>
 
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-  <script src="/web/app.js?v=22"></script>
+  <script src="/web/app.js?v=23"></script>
 </body>
 </html>

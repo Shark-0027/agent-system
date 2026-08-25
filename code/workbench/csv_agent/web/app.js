@@ -115,10 +115,11 @@
   const DATA_MUTATORS = ["data_clean", "feature_engineer"];
 
   const state = {
+    mode: "flow",        // "flow" | "workbench"
+    stage: "idle",       // flow 模式: idle | running | done
     runId: "",
     runs: [],
     tools: [],
-    stage: "idle",
     chat: {},
   };
 
@@ -164,9 +165,10 @@
   }
 
   function renderStage() {
-    const stage = state.stage || "idle";
     const box = $("#stage");
     if (!box) return;
+    if (state.mode === "workbench") { renderWorkbench(box); return; }
+    const stage = state.stage || "idle";
     if (stage === "idle") renderIdle(box);
     else if (stage === "running") renderRunning(box);
     else if (stage === "done") renderDone(box);
@@ -184,6 +186,12 @@
   }
 
   /* ---- 绑定单页交互 ---- */
+  function setMode(mode) {
+    state.mode = mode;
+    $$(".mode-nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+    renderStage();
+  }
+
   function bindApp() {
     $("#sidebarToggle").addEventListener("click", () => {
       $("#sidebar").classList.toggle("open");
@@ -191,8 +199,12 @@
     $("#newRunBtn").addEventListener("click", () => {
       state.runId = null;
       _idleFile = null;
-      setStage("idle");
+      state.stage = "idle";
+      setMode("flow");
     });
+    $$("#modeNav .mode-nav-btn").forEach((b) =>
+      b.addEventListener("click", () => setMode(b.dataset.mode))
+    );
   }
 
   function bindHelpModal() {
@@ -203,11 +215,284 @@
   /* ---- idle 态：上传 + 目标输入 ---- */
   let _idleFile = null;
 
+  function renderWorkbench(box) {
+    if (!state.runId) renderWorkbenchUpload(box);
+    else renderWorkbenchReady(box);
+  }
+
+  function renderWorkbenchUpload(box) {
+    box.innerHTML = `
+      <div class="wb-upload">
+        <h2>🛠 工作台</h2>
+        <p class="muted">上传 CSV 后，可手动选择单个工具分析，或用自然语言提问。不强制跑全流程。</p>
+        <div class="dropzone" id="wbDropzone">
+          <div class="icon">↑</div>
+          <div class="title">点击或拖拽上传 CSV</div>
+          <div class="hint">支持 .csv 格式，最大 200MB</div>
+          <input type="file" id="wbFile" accept=".csv,text/csv" style="display:none">
+        </div>
+        <div id="wbFileName" class="file-selected" style="display:none;margin-top:10px">
+          <span class="fs-icon">📄</span><span class="fs-name">—</span><span class="fs-size muted small">—</span><span class="fs-badge">已选择</span>
+        </div>
+        <div style="margin-top:16px"><button class="btn btn-primary btn-lg" id="wbUploadBtn">上传并开始</button></div>
+        <p class="muted small" style="margin-top:8px">想跑完整 Agent 自动编排？切到「全流程分析」。</p>
+      </div>`;
+    const dz = $("#wbDropzone");
+    const input = $("#wbFile");
+    dz.addEventListener("click", () => input.click());
+    dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("dragover"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+    dz.addEventListener("drop", (e) => {
+      e.preventDefault(); dz.classList.remove("dragover");
+      if (e.dataTransfer.files[0]) setWbFile(e.dataTransfer.files[0]);
+    });
+    input.addEventListener("change", () => { if (input.files[0]) setWbFile(input.files[0]); });
+    $("#wbUploadBtn").addEventListener("click", startWorkbench);
+  }
+
+  function setWbFile(f) {
+    _wbFile = f;
+    const box = $("#wbFileName");
+    box.style.display = "flex";
+    box.querySelector(".fs-name").textContent = f.name;
+    box.querySelector(".fs-size").textContent = formatBytes(f.size);
+    $("#wbDropzone").classList.add("has-file");
+  }
+
+  async function startWorkbench() {
+    if (!_wbFile) { toast("请先上传 CSV", true); return; }
+    const fd = new FormData();
+    fd.append("file", _wbFile);
+    fd.append("title", `工作台：${_wbFile.name.slice(0, 20)}`);
+    try {
+      const r = await fetch("/api/run", { method: "POST", body: fd }).then((r) => r.json());
+      state.runId = r.run_id;
+      state.wbResults = [];
+      _wbFile = null;
+      await loadRuns();
+      renderSidebarRuns();
+      renderStage();
+      toast("数据已加载，开始手动分析吧");
+    } catch (e) { toast(`上传失败：${e.message}`, true); }
+  }
+
+  function renderWorkbenchReady(box) {
+    box.innerHTML = `
+      <div class="wb-toolbar">
+        <span class="muted small">当前数据：RID ${esc(state.runId.slice(0, 10))}…</span>
+        <button class="btn btn-sm" id="wbReuploadBtn">↻ 重新上传</button>
+      </div>
+      <div class="wb-grid">
+        <aside class="wb-col wb-toolbox">
+          <h3>🧰 工具箱</h3>
+          <input class="run-search" id="wbToolSearch" placeholder="搜索工具">
+          <div class="wb-tool-groups" id="wbToolGroups"></div>
+        </aside>
+        <section class="wb-col wb-main">
+          <div class="wb-tabs">
+            <button class="wb-tab active" data-wbtab="data">📊 数据预览</button>
+            <button class="wb-tab" data-wbtab="results">📋 工具结果 <span class="wb-tab-count" id="wbResultCount"></span></button>
+          </div>
+          <div class="wb-body" id="wbBody"><p class="muted">加载中…</p></div>
+        </section>
+        <aside class="wb-col wb-nl">
+          <h3>💬 自然语言</h3>
+          <input class="run-search" id="wbNlQuestion" placeholder="例如：按品类汇总销售额 Top5">
+          <div class="flex gap-8" style="margin:8px 0">
+            <button class="btn btn-sm btn-primary" id="wbNlFilter">查数</button>
+            <button class="btn btn-sm" id="wbNlAgg">聚合</button>
+            <button class="btn btn-sm" id="wbNlInsight">洞察</button>
+          </div>
+          <div id="wbNlResult" class="small" style="white-space:pre-wrap;font-family:var(--font-mono);min-height:60px"></div>
+        </aside>
+      </div>`;
+    $("#wbReuploadBtn").addEventListener("click", () => { state.runId = null; renderStage(); });
+    $$(".wb-tab").forEach((t) =>
+      t.addEventListener("click", () => {
+        $$(".wb-tab").forEach((x) => x.classList.remove("active"));
+        t.classList.add("active");
+        renderWbTab(t.dataset.wbtab);
+      })
+    );
+    $("#wbToolSearch")?.addEventListener("input", renderWbToolbox);
+    $("#wbNlFilter").addEventListener("click", () => runWbNL("nl_filter"));
+    $("#wbNlAgg").addEventListener("click", () => runWbNL("nl_agg"));
+    $("#wbNlInsight").addEventListener("click", () => runWbNL("nl_insight"));
+    renderWbToolbox();
+    renderWbTab("data");
+  }
+
+  function renderWbToolbox() {
+    const box = $("#wbToolGroups");
+    if (!box) return;
+    const term = ($("#wbToolSearch")?.value || "").toLowerCase();
+    const byGroup = {};
+    state.tools.forEach((t) => {
+      const g = TOOL_GROUP[t.name] || "stats";
+      if (!byGroup[g]) byGroup[g] = [];
+      const label = TOOL_LABEL[t.name] || t.name;
+      if (term && !(label.toLowerCase().includes(term) || t.name.toLowerCase().includes(term))) return;
+      byGroup[g].push(t);
+    });
+    let html = "";
+    Object.keys(byGroup).forEach((g) => {
+      html += `<div class="wb-tool-group"><div class="wtg-head">${GROUP_NAME[g] || g} <span class="muted small">(${byGroup[g].length})</span></div>`;
+      byGroup[g].forEach((t) => {
+        const hasParams = !!TOOL_PARAMS[t.name];
+        html += `<div class="wtg-tool" data-tool="${esc(t.name)}">
+          <button class="wtg-btn">
+            <span class="t-name">${esc(TOOL_LABEL[t.name] || t.name)}</span>
+            ${hasParams ? '<span class="t-gear" title="参数">⚙</span>' : ""}
+          </button>
+          <div class="wtg-params" style="display:none"></div>
+        </div>`;
+      });
+      html += `</div>`;
+    });
+    box.innerHTML = html || '<p class="muted small">无匹配工具</p>';
+    $$(".wtg-tool").forEach((el) => {
+      const name = el.dataset.tool;
+      el.querySelector(".wtg-btn").addEventListener("click", (ev) => {
+        if (ev.target.classList.contains("t-gear")) {
+          const p = el.querySelector(".wtg-params");
+          const show = p.style.display !== "block";
+          p.style.display = show ? "block" : "none";
+          if (show && !p.dataset.built) {
+            p.innerHTML = buildToolParamForm(name);
+            p.dataset.built = "1";
+          }
+          return;
+        }
+        runWbTool(name, collectToolParams(el, name));
+      });
+    });
+  }
+
+  function buildToolParamForm(name) {
+    const ps = TOOL_PARAMS[name];
+    if (!ps) return "";
+    return ps.map((p) => {
+      if (p.type === "select") {
+        return `<label class="wtg-field"><span>${esc(p.label)}</span>
+          <select data-pkey="${esc(p.key)}">${p.options.map((o) => `<option value="${esc(o)}"${o === p.default ? " selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+      }
+      if (p.type === "checkbox") {
+        return `<label class="wtg-field cb"><input type="checkbox" data-pkey="${esc(p.key)}" data-ptype="cb"${p.default ? " checked" : ""}><span>${esc(p.label)}</span></label>`;
+      }
+      return `<label class="wtg-field"><span>${esc(p.label)}</span>
+        <input type="text" data-pkey="${esc(p.key)}" value="${esc(p.default ?? "")}"></label>`;
+    }).join("");
+  }
+
+  function collectToolParams(el, name) {
+    const params = {};
+    if (name === "eda_plot") params.kind = "all";
+    if (name === "data_clean") params.fill = "median";
+    el.querySelectorAll(".wtg-params [data-pkey]").forEach((inp) => {
+      const k = inp.dataset.pkey;
+      if (inp.dataset.ptype === "cb") params[k] = inp.checked;
+      else if (inp.value !== "") params[k] = inp.value;
+    });
+    return params;
+  }
+
+  if (!state.wbResults) state.wbResults = [];
+
+  async function renderWbTab(tab) {
+    const box = $("#wbBody");
+    const id = state.runId;
+    if (!box || !id) return;
+    if (tab === "data") {
+      box.innerHTML = '<p class="muted">加载数据…</p>';
+      try {
+        const d = await api(`/api/run/${id}/data?which=input`);
+        if (!d.columns) { box.innerHTML = '<div class="empty"><p>暂无数据</p></div>'; return; }
+        let html = `<div class="data-table-wrap"><table class="data-table"><thead><tr>`;
+        d.columns.forEach((c) => (html += `<th>${esc(c)}</th>`));
+        html += `</tr></thead><tbody>`;
+        (d.sample || []).forEach((row) => {
+          html += "<tr>";
+          d.columns.forEach((c) => (html += `<td>${esc(String(row[c] ?? ""))}</td>`));
+          html += "</tr>";
+        });
+        html += `</tbody></table></div>`;
+        html += `<p class="small muted" style="margin-top:10px">共 ${d.rows} 行 × ${d.cols} 列，预览前 10 行</p>`;
+        box.innerHTML = html;
+      } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
+    } else if (tab === "results") {
+      if (!state.wbResults.length) {
+        box.innerHTML = '<div class="empty"><p>尚未执行任何工具</p><p class="muted small">从左侧工具箱选择一个工具开始</p></div>';
+        return;
+      }
+      let html = "";
+      state.wbResults.forEach((r, i) => {
+        const wrap = document.createElement("div");
+        renderToolResult(r.data, r.tool, wrap);
+        html += `<div class="wb-result-card"><div class="wbr-head"><span>${esc(TOOL_LABEL[r.tool] || r.tool)}</span><button class="btn btn-sm btn-ghost" data-rm="${i}">✕</button></div>${wrap.innerHTML}</div>`;
+      });
+      box.innerHTML = html;
+      box.querySelectorAll("[data-rm]").forEach((b) =>
+        b.addEventListener("click", () => {
+          state.wbResults.splice(+b.dataset.rm, 1);
+          renderWbTab("results");
+          updateWbResultCount();
+        })
+      );
+    }
+  }
+
+  function updateWbResultCount() {
+    const el = $("#wbResultCount");
+    if (el) el.textContent = state.wbResults.length ? `(${state.wbResults.length})` : "";
+  }
+
+  async function runWbTool(name, params) {
+    const id = state.runId;
+    if (!id) { toast("未选择运行", true); return; }
+    toast(`执行 ${TOOL_LABEL[name] || name} …`);
+    try {
+      const r = await api(`/api/run/${id}/tool`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: name, params }),
+      });
+      if (r && r.success !== false) {
+        state.wbResults.unshift({ tool: name, data: r });
+        updateWbResultCount();
+        if (DATA_MUTATORS.includes(name)) {
+          toast("数据已更新，可在「数据预览」查看");
+        } else {
+          $$(".wb-tab").forEach((x) => x.classList.remove("active"));
+          document.querySelector('.wb-tab[data-wbtab="results"]').classList.add("active");
+          renderWbTab("results");
+        }
+      } else {
+        toast(`执行失败：${r.error || "未知"}`, true);
+      }
+    } catch (e) { toast(`执行失败：${e.message}`, true); }
+  }
+
+  async function runWbNL(tool) {
+    const id = state.runId;
+    if (!id) { toast("未选择运行", true); return; }
+    const q = ($("#wbNlQuestion")?.value || "").trim();
+    if (!q) { toast("请输入问题", true); return; }
+    const out = $("#wbNlResult");
+    if (!out) return;
+    out.textContent = "思考中…";
+    try {
+      const r = await api(`/api/run/${id}/tool`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool, params: { question: q } }),
+      });
+      out.textContent = typeof r === "string" ? r : JSON.stringify(r, null, 2);
+    } catch (e) { out.textContent = `失败：${e.message}`; }
+  }
+
   function renderIdle(box) {
     box.innerHTML = `
       <div class="idle-hero">
-        <h1>让数据分析更智能<br>从数据到洞察，<span class="accent">一句话即可完成</span></h1>
-        <p class="lead">AI 驱动的全流程数据分析 Agent，自动理解数据、智能规划任务 DAG，自主执行分析并生成可视化报告与洞察。</p>
+        <h1>全流程分析</h1>
+        <p class="lead">上传 CSV + 写一句话目标，Agent 自动规划任务、执行清洗/统计/建模、生成可视化报告。</p>
       </div>
       <div class="idle-form">
         <div class="field-group">
@@ -237,9 +522,9 @@
         </div>
         <div class="idle-actions">
           <button class="btn btn-primary btn-lg" id="idleStartBtn">开始分析</button>
-          <button class="icon-btn-sm" id="idleHelpBtn" title="使用引导">?</button>
+          <button class="btn btn-outline" id="idleHelpBtn">使用引导</button>
         </div>
-        <p class="idle-note muted small">Agent 会自动：规划任务 DAG → 执行清洗/统计/建模 → 生成报告</p>
+        <p class="idle-note muted small">不知道怎么用？点「使用引导」查看 CSV 格式与典型场景。Agent 会自动：规划任务 DAG → 执行清洗/统计/建模 → 生成报告</p>
       </div>
     `;
     const dz = $("#idleDropzone");
@@ -357,7 +642,7 @@
     } catch (e) { /* 忽略中途更新错误 */ }
   }
 
-  /* ---- done 态：报告 + 答疑 + 5 tab + 高级面板 ---- */
+  /* ---- done 态：报告 + 答疑 + 3 tab + 下载 popover ---- */
   async function renderDone(box) {
     const id = state.runId;
     if (!id) { setStage("idle"); return; }
@@ -365,29 +650,32 @@
       <div class="done-header">
         <h2>分析完成</h2>
         <div class="flex gap-8">
-          <button class="btn btn-outline btn-sm" id="doneDownloadBtn">⬇ 下载</button>
+          <div class="dl-wrap">
+            <button class="btn btn-outline btn-sm" id="doneDownloadBtn">⬇ 下载 ▾</button>
+            <div class="download-popover" id="downloadPopover"></div>
+          </div>
           <button class="btn btn-outline btn-sm" id="doneNewBtn">+ 新建分析</button>
         </div>
       </div>
       <div class="done-tabs">
         <button class="done-tab active" data-dtab="report">报告 &amp; 答疑</button>
-        <button class="done-tab" data-dtab="charts">图表</button>
-        <button class="done-tab" data-dtab="data">数据预览</button>
+        <button class="done-tab" data-dtab="result">结果</button>
         <button class="done-tab" data-dtab="trace">执行轨迹</button>
-        <button class="done-tab" data-dtab="download">下载</button>
-        <button class="done-tab done-tab-adv" data-dtab="advanced">▸ 高级</button>
       </div>
       <div class="done-body" id="doneBody"><p class="muted">加载中…</p></div>
       <div class="goal-suggest" id="goalSuggest" style="display:none"></div>
     `;
     $("#doneNewBtn").addEventListener("click", () => {
       state.runId = null; _idleFile = null;
-      setStage("idle");
+      state.stage = "idle";
+      setMode("flow");
     });
     $("#doneDownloadBtn").addEventListener("click", () => {
-      $$(".done-tab").forEach((x) => x.classList.remove("active"));
-      document.querySelector('.done-tab[data-dtab="download"]').classList.add("active");
-      renderDoneTab("download");
+      $("#downloadPopover").classList.toggle("show");
+      renderDownloadPopover(id);
+    });
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".dl-wrap")) $("#downloadPopover")?.classList.remove("show");
     });
     $$(".done-tab").forEach((t) => t.addEventListener("click", () => {
       $$(".done-tab").forEach((x) => x.classList.remove("active"));
@@ -396,6 +684,22 @@
     }));
     loadGoalSuggest(id);
     renderDoneTab("report");
+  }
+
+  async function renderDownloadPopover(id) {
+    const box = $("#downloadPopover");
+    if (!box) return;
+    let charts = [];
+    try { const d = await api(`/api/run/${id}/charts`); charts = d.charts || []; } catch (e) { /* ignore */ }
+    const chartLinks = charts.map((c) =>
+      `<a class="dl-item" href="/api/run/${id}/chart?name=${c}" download="${c}"><span>📊</span><span>${esc(c)}</span></a>`
+    ).join("");
+    box.innerHTML = `
+      <a class="dl-item" href="/api/report/${id}" download="report.md"><span>📝</span><span>分析报告 (Markdown)</span></a>
+      <a class="dl-item" href="/api/run/${id}/data?which=cleaned" download="cleaned.csv"><span>📄</span><span>清洗后数据 (CSV)</span></a>
+      ${chartLinks || '<div class="muted small" style="padding:6px 0">无图表</div>'}
+      <a class="dl-item" href="/api/run/${id}/data?which=input" download="input.csv"><span>📥</span><span>原始数据 (CSV)</span></a>
+    `;
   }
 
   async function renderDoneTab(tab) {
@@ -409,13 +713,33 @@
         box.innerHTML = `<div class="report-chat-grid"><div class="report-pane report-body">${esc(md).replace(/\n/g, "<br>")}</div></div>`;
         renderChatPanel(box.querySelector(".report-chat-grid"), id);
       } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
-    } else if (tab === "charts") {
+    } else if (tab === "result") {
+      box.innerHTML = '<p class="muted">加载中…</p>';
       try {
-        const d = await api(`/api/run/${id}/charts`);
-        box.innerHTML = (d.charts && d.charts.length)
-          ? d.charts.map((c) => `<img src="/api/run/${id}/chart?name=${c}" style="max-width:100%;margin-bottom:12px;border-radius:8px">`).join("")
-          : '<div class="empty"><p>暂无图表</p></div>';
-      } catch (e) { box.innerHTML = `<p class="muted">暂无图表</p>`; }
+        const [chartsRes, dataRes] = await Promise.all([
+          api(`/api/run/${id}/charts`).catch(() => ({ charts: [] })),
+          api(`/api/run/${id}/data?which=cleaned`).catch(() => null),
+        ]);
+        let html = '<h3>📊 图表</h3>';
+        const charts = chartsRes.charts || [];
+        if (charts.length) {
+          html += charts.map((c) => `<img src="/api/run/${id}/chart?name=${c}" style="max-width:100%;margin-bottom:12px;border-radius:8px">`).join("");
+        } else { html += '<p class="muted">暂无图表</p>'; }
+        html += '<h3 style="margin-top:20px">📋 数据预览</h3>';
+        if (dataRes && dataRes.columns) {
+          html += `<div class="data-table-wrap"><table class="data-table"><thead><tr>`;
+          dataRes.columns.forEach((c) => (html += `<th>${esc(c)}</th>`));
+          html += `</tr></thead><tbody>`;
+          (dataRes.sample || []).forEach((row) => {
+            html += "<tr>";
+            dataRes.columns.forEach((c) => (html += `<td>${esc(String(row[c] ?? ""))}</td>`));
+            html += "</tr>";
+          });
+          html += `</tbody></table></div>`;
+          html += `<p class="small muted" style="margin-top:10px">共 ${dataRes.rows} 行 × ${dataRes.cols} 列，预览前 10 行</p>`;
+        } else { html += '<p class="muted">暂无数据</p>'; }
+        box.innerHTML = html;
+      } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
     } else if (tab === "trace") {
       try {
         const d = await api(`/api/run/${id}/dag`);
@@ -426,115 +750,7 @@
           <div class="exec-log">${renderExecutionLog(d.events || [])}</div>
         `;
       } catch (e) { box.innerHTML = `<p class="muted">加载失败</p>`; }
-    } else if (tab === "data") {
-      try {
-        const d = await api(`/api/run/${id}/data?which=cleaned`);
-        if (!d.columns) { box.innerHTML = '<div class="empty"><p>暂无数据</p></div>'; return; }
-        let html = `<div class="data-table-wrap"><table class="data-table"><thead><tr>`;
-        d.columns.forEach((c) => (html += `<th>${esc(c)}</th>`));
-        html += `</tr></thead><tbody>`;
-        (d.sample || []).forEach((row) => {
-          html += "<tr>";
-          d.columns.forEach((c) => (html += `<td>${esc(String(row[c] ?? ""))}</td>`));
-          html += "</tr>";
-        });
-        html += `</tbody></table></div>`;
-        html += `<p class="small muted" style="margin-top:10px">共 ${d.rows} 行 × ${d.cols} 列，预览前 10 行</p>`;
-        box.innerHTML = html;
-      } catch (e) { box.innerHTML = `<p class="muted">加载失败</p>`; }
-    } else if (tab === "download") {
-      try {
-        const info = await api(`/api/run/${id}/charts`);
-        const charts = (info.charts || []).map((c) =>
-          `<a class="download-item" href="/api/run/${id}/chart?name=${c}" download="${c}"><span>📊</span><span>${esc(c)}</span><span class="muted small">下载</span></a>`
-        ).join("");
-        box.innerHTML = `
-          <h3 class="download-title">下载产物</h3>
-          <div class="download-list">
-            <a class="download-item" href="/api/report/${id}" download="report.md"><span>📝</span><span>分析报告 (Markdown)</span><span class="muted small">下载</span></a>
-            <a class="download-item" href="/api/run/${id}/data?which=cleaned" download="cleaned.csv"><span>📄</span><span>清洗后数据 (CSV)</span><span class="muted small">下载</span></a>
-            ${charts || '<div class="muted small" style="margin:8px 0">无图表</div>'}
-            <a class="download-item" href="/api/run/${id}/data?which=input" download="input.csv"><span>📥</span><span>原始数据 (CSV)</span><span class="muted small">下载</span></a>
-          </div>
-        `;
-      } catch (e) { box.innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`; }
-    } else if (tab === "advanced") {
-      box.innerHTML = `
-        <div class="adv-panel">
-          <div class="adv-section">
-            <h3>🛠 工具箱</h3>
-            <p class="muted small">手动选择工具对当前运行的数据执行额外分析。</p>
-            <div class="adv-tool-grid" id="advTools"></div>
-            <div id="advToolResult" style="margin-top:12px"></div>
-          </div>
-          <div class="adv-section">
-            <h3>💬 自然语言查数</h3>
-            <p class="muted small">输入问题，调用智能查数/聚合/洞察。</p>
-            <div class="field-group" style="margin-bottom:10px">
-              <input class="run-search" id="advNlQuestion" placeholder="例如：按品类汇总销售额 Top5">
-            </div>
-            <div class="flex gap-8" style="margin-bottom:12px">
-              <button class="btn btn-sm btn-primary" id="advNlFilterBtn">智能查数</button>
-              <button class="btn btn-sm" id="advNlAggBtn">分组聚合</button>
-              <button class="btn btn-sm" id="advNlInsightBtn">智能洞察</button>
-            </div>
-            <div id="advNlResult" class="small" style="white-space:pre-wrap;font-family:var(--font-mono)"></div>
-          </div>
-        </div>
-      `;
-      const grid = $("#advTools");
-      state.tools.forEach((t) => {
-        const btn = document.createElement("button");
-        btn.className = "tool-btn";
-        btn.innerHTML = `<span class="t-name">${esc(TOOL_LABEL[t.name] || t.name)}</span><span class="t-desc">${esc(t.description || "")}</span>`;
-        btn.addEventListener("click", () => runToolAdvanced(t.name, btn));
-        grid.appendChild(btn);
-      });
-      $("#advNlFilterBtn").addEventListener("click", () => runNLAdvanced("nl_filter"));
-      $("#advNlAggBtn").addEventListener("click", () => runNLAdvanced("nl_agg"));
-      $("#advNlInsightBtn").addEventListener("click", () => runNLAdvanced("nl_insight"));
     }
-  }
-
-  async function runToolAdvanced(name, btn) {
-    const id = state.runId;
-    if (!id) { toast("未选择运行", true); return; }
-    const out = $("#advToolResult");
-    if (!out) return;
-    out.innerHTML = `<p class="muted small">执行 ${esc(name)} 中…</p>`;
-    btn?.classList.add("running");
-    toast(`执行 ${TOOL_LABEL[name] || name} …`);
-    try {
-      const params = {};
-      if (name === "eda_plot") params.kind = "all";
-      if (name === "data_clean") params.fill = "median";
-      const r = await api(`/api/run/${id}/tool`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: name, params }),
-      });
-      toast(r.success !== false ? "执行完成" : "执行失败", r.success === false);
-      loadRuns().catch(() => {});
-      renderToolResult(r, name, out);
-    } catch (e) {
-      out.innerHTML = `<p class="muted err">执行失败：${esc(e.message)}</p>`;
-    } finally { btn?.classList.remove("running"); }
-  }
-
-  async function runNLAdvanced(tool) {
-    const id = state.runId;
-    if (!id) { toast("未选择运行", true); return; }
-    const q = ($("#advNlQuestion")?.value || "").trim();
-    if (!q) { toast("请输入问题", true); return; }
-    const out = $("#advNlResult");
-    if (!out) return;
-    out.textContent = "思考中…";
-    try {
-      const r = await api(`/api/run/${id}/tool`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool, params: { question: q } }),
-      });
-      out.textContent = typeof r === "string" ? r : JSON.stringify(r, null, 2);
-    } catch (e) { out.textContent = `失败：${e.message}`; }
   }
 
   /* ---- 健康检查 + 运行模式 ---- */
@@ -542,14 +758,14 @@
     try {
       const h = await api("/api/health");
       setHealth(true);
-      setMode(h);
+      setHealthMode(h);
     } catch (e) { setHealth(false); }
   }
   function setHealth(ok) {
     $("#healthText").textContent = ok ? "服务正常" : "服务异常";
     $("#healthDot").className = "health-dot" + (ok ? " ok" : "");
   }
-  function setMode(h) {
+  function setHealthMode(h) {
     const text = $("#modeText");
     const badge = $("#modeBadge");
     if (h && h.mode) {
