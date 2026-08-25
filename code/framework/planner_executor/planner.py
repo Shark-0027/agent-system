@@ -562,6 +562,8 @@ class Planner:
 
         # 构建 DAG
         dag = TaskDAG(name=task_name or "planned_task")
+        dag.metadata["analysis"] = data.get("analysis", "")
+        dag.metadata["is_simple"] = data.get("is_simple", False)
         subtasks = data.get("subtasks", [])
 
         if not subtasks:

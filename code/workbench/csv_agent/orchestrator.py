@@ -68,14 +68,17 @@ class CsvAgent:
                 result = {"error": f"{type(e).__name__}: {e}"}
             # 3b. 持久化结构化追踪（规划/执行事件与耗时），前端据此展示执行轨迹
             if isinstance(result, dict):
+                plan_data = result.get("plan") or {}
                 workspace.save_json({
                     "goal": goal,
                     "mode": "llm" if self._use_llm else "local",
                     "events": traces,
                     "summary": result.get("trace"),
                     "duration": result.get("duration", 0.0),
-                    "node_count": len((result.get("plan") or {}).get("nodes", [])),
+                    "node_count": len(plan_data.get("nodes", [])),
                     "error": result.get("error"),
+                    "dag": plan_data,
+                    "plan_analysis": plan_data.get("metadata", {}).get("analysis", ""),
                 }, "trace.json")
             # 4. 若未自动生成报告，兜底调一次 report_generate（params 含 goal 与 ws）
             if not workspace.report_md.exists():

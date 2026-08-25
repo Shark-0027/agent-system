@@ -73,17 +73,24 @@ _ANALYZE_STATE: Dict[str, Dict[str, Any]] = {}
 
 def _analyze_background(rid: str, goal: str) -> None:
     """在后台线程执行一次全流程分析，并实时刷新 _ANALYZE_STATE 供 /progress 轮询。"""
-    _ANALYZE_STATE[rid] = {"status": "running", "goal": goal, "error": None}
+    _ANALYZE_STATE[rid] = {
+        "status": "running", "goal": goal, "error": None,
+        "stage": "planning", "stage_label": "AI 正在规划分析路径...",
+        "tools_done": [],
+    }
     try:
         built = _build_agent()
+        _ANALYZE_STATE[rid].update({"stage": "executing", "stage_label": "AI 正在执行分析任务..."})
         out = built["agent"].analyze(Workspace(run_id=rid, root=_run_root(rid)), goal)
         _ANALYZE_STATE[rid].update({
             "status": "done",
             "success": bool(out.get("success") == True),
             "mode": built["mode"],
+            "stage": "done",
+            "stage_label": "分析完成",
         })
     except Exception as e:  # noqa: BLE001 客户端只关心最终状态与错误信息
-        _ANALYZE_STATE[rid].update({"status": "failed", "error": str(e)})
+        _ANALYZE_STATE[rid].update({"status": "failed", "error": str(e), "stage": "failed"})
 
 
 def _build_agent() -> Dict[str, Any]:
@@ -335,6 +342,77 @@ def list_runs():
     return {"runs": out}
 
 
+# 首页交互演示：优先返回最近一次成功 LLM 运行的真实数据，否则用内置示例
+_DEMO_FALLBACK = {
+    "dag": {
+        "name": "销售数据综合分析",
+        "nodes": [
+            {"task_id": "t1", "description": "加载数据并推断 schema", "dependencies": [], "tool": "csv_load"},
+            {"task_id": "t2", "description": "缺失值与异常值清洗", "dependencies": ["t1"], "tool": "data_clean"},
+            {"task_id": "t3", "description": "衍生时间/分类特征", "dependencies": ["t2"], "tool": "feature_engineer"},
+            {"task_id": "t4", "description": "探索性分布与相关性", "dependencies": ["t3"], "tool": "eda_plot"},
+            {"task_id": "t5", "description": "识别离群点", "dependencies": ["t3"], "tool": "anomaly_detect"},
+            {"task_id": "t6", "description": "生成可视化报告", "dependencies": ["t4", "t5"], "tool": "report_generate"},
+        ],
+        "edges": [
+            {"from": "t1", "to": "t2"}, {"from": "t2", "to": "t3"},
+            {"from": "t3", "to": "t4"}, {"from": "t3", "to": "t5"},
+            {"from": "t4", "to": "t6"}, {"from": "t5", "to": "t6"},
+        ],
+        "metadata": {"analysis": "数据包含日期、地区、品类、销售额等字段。规划：先清洗保证质量，再衍生时间特征支持趋势分析，并行做分布探索与异常检测，最后汇总生成报告。"},
+    },
+    "events": [
+        {"event": "agent_start", "data": {}, "ts": "10:00:01"},
+        {"event": "planning_start", "data": {}, "ts": "10:00:02"},
+        {"event": "planning_complete", "data": {"node_count": 6}, "ts": "10:00:05"},
+        {"event": "tool_start", "data": {"task_id": "t1", "tool": "csv_load"}, "ts": "10:00:06"},
+        {"event": "tool_complete", "data": {"task_id": "t1", "tool": "csv_load", "success": True, "duration": 0.4}, "ts": "10:00:06"},
+        {"event": "tool_start", "data": {"task_id": "t2", "tool": "data_clean"}, "ts": "10:00:07"},
+        {"event": "tool_complete", "data": {"task_id": "t2", "tool": "data_clean", "success": True, "duration": 1.2}, "ts": "10:00:08"},
+        {"event": "tool_start", "data": {"task_id": "t6", "tool": "report_generate"}, "ts": "10:00:15"},
+        {"event": "tool_complete", "data": {"task_id": "t6", "tool": "report_generate", "success": True, "duration": 2.1}, "ts": "10:00:17"},
+    ],
+    "report_snippet": "## 探索性分析\n\n销售额整体呈右偏分布，中位数 4299 元。华东地区销售额最高，占比 38%。\n\n## 异常点\n\n检测到 7 个离群点，集中在 2024-07 促销期，属业务正常波动。\n\n## 结论\n\n建议关注华南地区下滑趋势，可在 Q3 加大营销投入。",
+    "source": "sample",
+}
+
+
+@app.get("/api/demo/flow")
+def demo_flow():
+    """首页交互演示数据：优先返回最近一次成功运行的真实数据，否则用内置示例。"""
+    # 1. 从内存运行表中找最近一次有 dag 数据的成功运行
+    for rid in reversed(list(_runs.keys())):
+        root = _run_root(rid)
+        trace_p = root / "trace.json"
+        if not trace_p.exists():
+            continue
+        try:
+            trace = json.loads(trace_p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        dag = trace.get("dag") or {}
+        if not (dag.get("nodes")):
+            continue
+        # 报告片段：取 report.md 前 600 字
+        report_p = root / "report.md"
+        snippet = ""
+        if report_p.exists():
+            try:
+                snippet = report_p.read_text(encoding="utf-8")[:600]
+            except Exception:
+                snippet = ""
+        return {
+            "dag": dag,
+            "events": trace.get("events", []),
+            "report_snippet": snippet,
+            "analysis": trace.get("plan_analysis", ""),
+            "source": "history",
+            "run_id": rid,
+        }
+    # 2. 无历史则用内置示例
+    return _DEMO_FALLBACK
+
+
 @app.get("/api/run/{rid}/info")
 def run_info(rid: str):
     root = _run_root(rid)
@@ -490,6 +568,24 @@ def run_trace(rid: str):
     if not p.exists():
         raise HTTPException(404, "trace not found")
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+@app.get("/api/run/{rid}/dag")
+def run_dag(rid: str):
+    """返回 DAG 结构 + LLM 分析文本 + 事件列表，供前端渲染 DAG 可视化。"""
+    root = _run_root(rid)
+    p = root / "trace.json"
+    if not p.exists():
+        raise HTTPException(404, "trace not found")
+    trace = json.loads(p.read_text(encoding="utf-8"))
+    return {
+        "dag": trace.get("dag", {}),
+        "analysis": trace.get("plan_analysis", ""),
+        "events": trace.get("events", []),
+        "goal": trace.get("goal", ""),
+        "mode": trace.get("mode", ""),
+        "duration": trace.get("duration", 0.0),
+    }
 
 
 @app.get("/api/run/{rid}/llm-mode")

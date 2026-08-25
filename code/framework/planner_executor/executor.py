@@ -285,11 +285,13 @@ class Executor:
         llm_client: Any = None,
         max_retries: int = 3,
         default_timeout: float = 300.0,
+        trace_logger: Optional["TraceLogger"] = None,
     ) -> None:
         self.tool_registry = tool_registry
         self.llm_client = llm_client
         self.max_retries = max_retries
         self.default_timeout = default_timeout
+        self.trace_logger = trace_logger or TraceLogger()
 
     # ------------------------------------------------------------------
     # 核心接口
@@ -325,9 +327,31 @@ class Executor:
                 tool = registry.get(tool_name)
                 if tool is None:
                     raise ValueError(f"Tool '{tool_name}' not found in registry")
+                self.trace_logger.log("tool_start", {
+                    "task_id": task_node.task_id,
+                    "task_desc": task_node.description,
+                    "tool": tool_name,
+                })
                 result = self._execute_with_tool(task_node, tool)
+                self.trace_logger.log("tool_complete", {
+                    "task_id": task_node.task_id,
+                    "tool": tool_name,
+                    "success": True,
+                    "duration": round(time.time() - start_time, 2),
+                })
             elif client is not None:
+                self.trace_logger.log("tool_start", {
+                    "task_id": task_node.task_id,
+                    "task_desc": task_node.description,
+                    "tool": "llm_direct",
+                })
                 result = self._execute_with_llm(task_node, client)
+                self.trace_logger.log("tool_complete", {
+                    "task_id": task_node.task_id,
+                    "tool": "llm_direct",
+                    "success": True,
+                    "duration": round(time.time() - start_time, 2),
+                })
             else:
                 # 无匹配工具且无 LLM：不应静默标记为完成，否则"假成功"污染
                 # 成功率和最终报告。改为返回带错误标记的结果，交由 verify_result 判别。
@@ -361,6 +385,11 @@ class Executor:
                 task_node.task_id[:8],
                 str(e),
             )
+            self.trace_logger.log("tool_failed", {
+                "task_id": task_node.task_id,
+                "tool": tool_name if 'tool_name' in locals() else "unknown",
+                "error": str(e),
+            }, level="error")
             return self.handle_failure(task_node, e)
 
     def handle_failure(
@@ -663,6 +692,7 @@ class PlannerExecutorAgent:
         self.executor = Executor(
             tool_registry=self.tool_registry,
             llm_client=llm_client,
+            trace_logger=self.trace_logger,
         )
 
         self.max_replan_attempts = max_replan_attempts
@@ -717,6 +747,8 @@ class PlannerExecutorAgent:
             self.trace_logger.log("planning_complete", {
                 "node_count": plan_dag.node_count,
                 "edge_count": plan_dag.edge_count,
+                "analysis": plan_dag.metadata.get("analysis", ""),
+                "dag": plan_dag.to_dict(),
             })
 
         # 3. 执行循环

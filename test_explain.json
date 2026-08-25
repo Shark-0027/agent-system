@@ -1,0 +1,1 @@
+{"tool":"dist_fit","result":{"success":true,"col":"price","best":"lognormal","results":[{"dist":"lognormal","p_value":0.258,"ks_statistic":0.071}]}}

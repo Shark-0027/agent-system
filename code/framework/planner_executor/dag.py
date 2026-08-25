@@ -130,6 +130,8 @@ class TaskDAG:
         self._adj: Dict[str, List[str]] = defaultdict(list)
         # 入度表：to_id -> 入度计数
         self._in_degree: Dict[str, int] = defaultdict(int)
+        # 附加元数据（如 LLM 分析文本）
+        self.metadata: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # 基本操作
@@ -515,6 +517,7 @@ class TaskDAG:
                 for from_id, targets in self._adj.items()
                 for to_id in targets
             ],
+            "metadata": self.metadata,
         }
 
     def to_json(self, indent: int = 2) -> str:
