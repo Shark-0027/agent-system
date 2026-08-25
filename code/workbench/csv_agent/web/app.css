@@ -465,6 +465,21 @@ table.data tr:nth-child(even) { background: #FAFBFE; }
 .empty .icon { font-size: 36px; margin-bottom: 12px; opacity: .5; }
 .empty p { margin: 0; }
 
+/* 工具结果解释区块 */
+.tool-explain {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: #f0f7ff; border: 1px solid #c7dbf5; border-radius: var(--radius-sm);
+  padding: 14px 16px; margin: 0 0 16px;
+}
+.tool-explain .te-icon { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+.tool-explain .te-body { flex: 1; }
+.tool-explain .te-body p { margin: 0 0 6px; font-size: 13px; line-height: 1.7; color: var(--ink-700); }
+.tool-explain .te-body p:last-child { margin-bottom: 0; }
+.tool-explain .te-body b { color: var(--primary); font-weight: 600; }
+.tool-explain .te-loading { color: var(--ink-400); font-style: italic; animation: pulse-text 1.5s ease-in-out infinite; }
+.tool-explain .chat-tag { font-size: 11px; color: var(--ink-400); margin-top: 4px; }
+@keyframes pulse-text { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
 /* 数据答疑对话面板 */
 .chat-panel {
   margin-top: 16px;

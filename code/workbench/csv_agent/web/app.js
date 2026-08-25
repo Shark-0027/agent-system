@@ -390,6 +390,28 @@
   }
 
   // 展示最近一次工具执行结果（分布拟合/相关/异常等返回真实数值结果，而非数据预览）
+  // 工具结果解释：异步调 LLM 生成，先渲染占位，返回后填充
+  function toolExplainPlaceholder() {
+    return `<div class="tool-explain" id="toolExplainBox"><div class="te-icon">💡</div><div class="te-body"><p class="te-loading">正在生成解读…</p></div></div>`;
+  }
+
+  async function loadToolExplain(tool, data) {
+    const box = $("#toolExplainBox");
+    if (!box || !data || !data.success) return;
+    try {
+      const r = await api(`/api/run/${state.runId}/explain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool, result: data }),
+      });
+      const explain = r.explain || "暂无解读。";
+      const tag = r.used_llm ? '<div class="chat-tag">· LLM 生成</div>' : "";
+      box.querySelector(".te-body").innerHTML = `<p>${esc(explain).replace(/\n/g, "<br>")}</p>${tag}`;
+    } catch (e) {
+      box.querySelector(".te-body").innerHTML = `<p class="muted">解读加载失败：${esc(e.message)}</p>`;
+    }
+  }
+
   function renderToolResult() {
     const box = $("#wbContent");
     const tr = state.toolResult;
@@ -401,8 +423,9 @@
     const label = TOOL_LABEL[tool] || tool;
     const metaKeys = ["success", "tool", "meta_file", "chart"];
     let html = `<div class="panel-card"><h3>工具结果 · ${esc(label)}</h3>`;
+    html += toolExplainPlaceholder();
     if (data.chart) {
-      html += `<figure class="chart-card chart-single"><img src="/api/run/${state.runId}/chart/${encodeURIComponent(data.chart)}" alt="${esc(data.chart)}"><figcaption>${esc(data.chart)}</figcaption></figure>`;
+      html += `<figure class="chart-card chart-single"><img src="/api/run/${state.runId}/chart?name=${encodeURIComponent(data.chart)}" alt="${esc(data.chart)}"><figcaption>${esc(data.chart)}</figcaption></figure>`;
     }
     // 数组字段（如 results）渲染成表格
     Object.entries(data).forEach(([k, v]) => {
@@ -424,6 +447,8 @@
     }
     html += '</div>';
     box.innerHTML = html;
+    // 异步加载 LLM 解释
+    loadToolExplain(tool, data);
   }
 
   async function loadRunInfoShort() {

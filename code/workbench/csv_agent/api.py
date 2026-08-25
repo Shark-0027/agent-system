@@ -647,6 +647,65 @@ def run_chat(rid: str, body: Dict[str, Any] = Body(...)):
                    "reason": reason, "reason_code": reason_code})
 
 
+# 工具结果解释：LLM 根据工具名和返回数据生成通俗易懂的中文说明
+_TOOL_LABELS = {
+    "data_clean": "数据清洗", "feature_engineer": "特征工程", "data_quality": "数据质量体检",
+    "corr_analysis": "相关性分析", "hypo_test": "假设检验", "regression_fit": "回归拟合",
+    "time_series_feat": "时间序列分析", "cluster_profile": "聚类分析", "anomaly_detect": "离群点检测",
+    "dist_fit": "分布拟合", "pca_decompose": "主成分分析",
+    "model_suggest": "模型建议", "model_train": "模型训练", "model_classify": "模型分类",
+}
+
+
+@app.post("/api/run/{rid}/explain")
+def run_explain(rid: str, body: Dict[str, Any] = Body(...)):
+    """让 LLM 根据工具执行结果生成通俗中文解释。
+
+    前端在工具执行后把 tool_name 和 result 发过来，后端构造 prompt 调 LLM。
+    LLM 不可用时回退为简短规则提示。
+    """
+    tool_name = str(body.get("tool") or "")
+    tool_result = body.get("result") or {}
+    label = _TOOL_LABELS.get(tool_name, tool_name)
+
+    # 构造 LLM prompt
+    import json as _json
+    result_str = _json.dumps(tool_result, ensure_ascii=False, default=str)[:2000]
+    prompt = (
+        f"你是数据分析助手。用户刚执行了「{label}」工具，以下是工具返回的结果数据（JSON）。\n"
+        "请用简洁通俗的中文（2-4句话）解释这个结果说明了什么，重点回答：\n"
+        "1. 关键数值代表什么含义\n"
+        "2. 结果好还是不好，有什么值得关注的地方\n"
+        "3. 如果适用，给出下一步建议\n"
+        "不要罗列原始数值，要解读。不要编造数据。\n"
+        f"工具返回数据：\n{result_str}"
+    )
+
+    llm = None
+    try:
+        llm = LLMClient(**(dict(_LLM_OVERRIDE or {})))
+    except Exception as e:
+        return _clean({"success": True,
+                       "explain": f"「{label}」执行完成。LLM 初始化失败：{str(e)[:120]}",
+                       "used_llm": False})
+
+    if llm is not None:
+        try:
+            msg = llm.chat_completion([{"role": "user", "content": prompt}], temperature=0.3)
+            content = (getattr(msg, "content", "") or "").strip()
+            if len(content) >= 10:
+                return _clean({"success": True, "explain": content, "used_llm": True})
+        except Exception as e:
+            return _clean({"success": True,
+                           "explain": f"「{label}」执行完成。LLM 调用失败：{str(e)[:120]}",
+                           "used_llm": False})
+
+    # LLM 不可用时回退
+    return _clean({"success": True,
+                   "explain": f"「{label}」执行完成。LLM 未配置或调用失败，无法生成详细解读。请在「LLM 配置」中设置有效的 API Key 后重试。",
+                   "used_llm": False})
+
+
 @app.get("/api/run/{rid}/charts")
 def run_charts(rid: str):
     root = _run_root(rid)
